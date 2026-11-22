@@ -288,6 +288,12 @@ function App() {
     clear();
   }
   function pick(p: Point) {
+    const crystal = at(g.board, p);
+    if (g.phase === "ready" && crystal) {
+      begin(g.mode);
+      select(p);
+      return;
+    }
     if (!active) return;
     if (tool === "water") {
       if (sel && dist(sel, p) === 0) {
@@ -297,7 +303,6 @@ function App() {
     }
     if (tool === "solution") return;
     const destination = moves.find((r) => contains(r, p));
-    const crystal = at(g.board, p);
     if (tool === "shift") {
       if (chosen && destination) dispatch({ type: "shift", id: chosen.id, to: destination });
       else if (crystal && crystal.w * crystal.h > 1) {
@@ -476,31 +481,38 @@ function App() {
                     "veil" + (g.phase === "ended" && g.pickups.length ? " afterPickup" : "")
                   }
                 >
-                  <div>
-                    {g.phase === "ended" ? <Trophy /> : <Pause />}
-                    <h2>{g.phase === "ended" ? "Time up!" : "Paused"}</h2>
-                    <p>
-                      {g.phase === "ended"
-                        ? g.score.toLocaleString() +
-                          " pt · 回収 " +
-                          g.collected +
-                          "個 / 混晶 " +
-                          g.batches +
-                          "組"
-                        : "時計を止めています"}
-                    </p>
-                    {g.phase === "ended" && <CrystalResult made={g.made} />}
-                    <button
-                      className="primary"
-                      onClick={() =>
-                        g.phase === "paused"
-                          ? write(start(live.current, performance.now()))
-                          : begin(g.mode)
-                      }
-                    >
-                      {g.phase === "paused" ? "プレイを再開" : "もう一度遊ぶ"}
-                    </button>
-                  </div>
+                  {g.phase === "ended" ? (
+                    <div className="resultCard">
+                      <div>
+                        <p className="resultCaption">
+                          <Trophy /> Time up! · 最終スコア
+                        </p>
+                        <h2 className="resultScore">
+                          <span className="sr-only">最終スコア </span>
+                          {g.score.toLocaleString("ja-JP")} <small>pt</small>
+                        </h2>
+                        <p className="resultCounts">
+                          回収 {g.collected}個 · 混晶 {g.batches}組
+                        </p>
+                      </div>
+                      <CrystalResult made={g.made} />
+                      <button className="primary" onClick={() => begin(g.mode)}>
+                        もう一度遊ぶ
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <Pause />
+                      <h2>Paused</h2>
+                      <p>時計を止めています</p>
+                      <button
+                        className="primary"
+                        onClick={() => write(start(live.current, performance.now()))}
+                      >
+                        プレイを再開
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -596,7 +608,7 @@ function App() {
               </h2>
               <p>
                 {g.phase === "ready"
-                  ? "180秒で結晶を合成。まずは Li と Cl をつなげよう。"
+                  ? "結晶をタップすると180秒のゲーム開始。まずは A4 の Li を A3 へ。"
                   : lesson.text}
               </p>
               {g.phase === "ready" ? (
