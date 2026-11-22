@@ -120,7 +120,7 @@ function guide(g: Game): { text: string; action?: Action; cue?: Rect[]; done?: b
       action: { type: "harvest", id: at(g.board, { x: 5, y: 0 })!.id },
     };
   return {
-    text: "「最終結晶」欄の「C3 を移動」を押し、盤面の E3 を選んで2つの結晶を接触させよう。",
+    text: "「強制交換」を押し、C3 の結晶 → 点線の E3 の順に選んで混晶を作ろう。",
     action: { type: "shift", id: cl.id, to: { x: 4, y: 2 } },
     cue: [cl, { ...cl, x: 4 }],
   };
@@ -142,8 +142,7 @@ function App() {
     setG(n);
   };
   const [sel, select] = useState<Point | null>(null),
-    [item, setItem] = useState<"water" | "solution" | null>(null),
-    [shift, setShift] = useState(false),
+    [tool, setTool] = useState<"shift" | "water" | "solution" | null>(null),
     [help, setHelp] = useState(false),
     [notice, setNotice] = useState(""),
     [burst, setBurst] = useState<Reaction | null>(null),
@@ -165,8 +164,7 @@ function App() {
   prefs.current = { mute, low };
   const clear = () => {
     select(null);
-    setItem(null);
-    setShift(false);
+    setTool(null);
     setNotice("");
   };
   const begin = (mode: Mode) => {
@@ -235,18 +233,20 @@ function App() {
   }, [g.pickups]);
   const finals = g.board.filter((b) => collectible(b.k));
   const lesson = guide(g),
-    chosen = sel && !item ? at(g.board, sel) : undefined;
+    chosen = sel && (!tool || tool === "shift") ? at(g.board, sel) : undefined;
   const active = g.phase === "playing";
-  const waterPreview = active && item === "water" && sel ? waterArea(g.board, sel) : null;
+  const waterPreview = active && tool === "water" && sel ? waterArea(g.board, sel) : null;
   const emptyCells = useMemo(() => vacantCells(g.board), [g.board]);
   const vacancies = emptyCells.length;
-  function toggleItem(next: "water" | "solution") {
-    clear();
-    setItem(item === next ? null : next);
+  function toggleTool(next: NonNullable<typeof tool>) {
+    if (next !== "shift" || tool === next || !chosen || chosen.w * chosen.h === 1) select(null);
+    setNotice("");
+    setTool(tool === next ? null : next);
   }
   const moves = useMemo(() => {
-    if (!sel || !active || item) return [];
-    if (chosen && chosen.w * chosen.h > 1) return shift ? destinations(g, chosen) : [];
+    if (!sel || !active) return [];
+    if (tool === "shift" && chosen) return destinations(g, chosen);
+    if (tool || (chosen && chosen.w * chosen.h > 1)) return [];
     return dirs
       .map(([dx, dy]) => cell({ x: sel.x + dx, y: sel.y + dy }))
       .filter(
@@ -255,19 +255,19 @@ function App() {
           (at(g.board, p)?.w ?? 1) * (at(g.board, p)?.h ?? 1) === 1 &&
           (chosen || at(g.board, p)),
       );
-  }, [sel, active, shift, g.board, g.charges, chosen, item]);
+  }, [sel, active, g.board, g.charges, chosen, tool]);
   const forecast = useMemo(() => {
     if (!sel || !moves.length) return null;
     const results = moves.map((p) => {
       const a: Action =
-        shift && chosen
+        tool === "shift" && chosen
           ? { type: "shift", id: chosen.id, to: p }
           : { type: "swap", from: sel, to: { x: p.x, y: p.y } };
       const n = act(g, a, g.since, false);
       return { p, n, value: n.events.reduce((v, e) => v + e.rule.tier * e.rule.tier, 0) };
     });
     return results.sort((a, b) => b.value - a.value || b.n.blocked.length - a.n.blocked.length)[0];
-  }, [sel, moves, shift, chosen]);
+  }, [sel, moves, tool, chosen]);
   function dispatch(a: Action) {
     if (!active) return;
     if (!isTimed(g.mode) && (!lesson.action || !sameAction(a, lesson.action))) {
@@ -289,24 +289,28 @@ function App() {
   }
   function pick(p: Point) {
     if (!active) return;
-    if (item === "water") {
+    if (tool === "water") {
       if (sel && dist(sel, p) === 0) {
         if (waterPreview?.crystals.length) dispatch({ type: "dissolve", center: p });
       } else select(p);
       return;
     }
-    if (item === "solution") return;
+    if (tool === "solution") return;
     const destination = moves.find((r) => contains(r, p));
-    if (shift && chosen && destination) {
-      dispatch({ type: "shift", id: chosen.id, to: destination });
+    const crystal = at(g.board, p);
+    if (tool === "shift") {
+      if (chosen && destination) dispatch({ type: "shift", id: chosen.id, to: destination });
+      else if (crystal && crystal.w * crystal.h > 1) {
+        select({ x: crystal.x, y: crystal.y });
+        setNotice("");
+      }
       return;
     }
-    const crystal = at(g.board, p);
-    if (!shift && crystal && collectible(crystal.k)) {
+    if (crystal && collectible(crystal.k)) {
       dispatch({ type: "collect", id: crystal.id });
       return;
     }
-    if (!shift && sel && destination) {
+    if (sel && destination) {
       dispatch({ type: "swap", from: sel, to: p });
       return;
     }
@@ -316,7 +320,6 @@ function App() {
     }
     select(p);
     setNotice("");
-    setShift(false);
   }
   function openHelp() {
     resumeHelp.current = active;
@@ -338,7 +341,8 @@ function App() {
         String(remaining % 60).padStart(2, "0")
       : "∞";
   const feedback =
-    (active && item === "water"
+    (g.phase === "ended" ? g.message : "") ||
+    (active && tool === "water"
       ? waterPreview && sel
         ? coord(sel) +
           " · " +
@@ -349,17 +353,19 @@ function App() {
             : "別の場所を選んでください")
         : "盤面を押して溶かす3×3の範囲を選択"
       : "") ||
-    (active && item === "solution" ? "空き" + vacancies + "マスすべてに元素を晶出させます" : "") ||
+    (active && tool === "solution" ? "空き" + vacancies + "マスすべてに元素を晶出させます" : "") ||
     notice ||
+    (active && tool === "shift"
+      ? !chosen
+        ? "動かす固定結晶を選択。通常は⚡1、最終結晶・混晶は⚡2"
+        : collectible(chosen.k) && g.charges < 2
+          ? "この結晶には2チャージ必要です。別の固定結晶を選べます"
+          : formulas[chosen.k] +
+            (moves.length ? " · 点線の移動先を選択" : " · 隣に丸ごと交換できる区画がありません")
+      : "") ||
     (sel
       ? chosen && chosen.w * chosen.h > 1
-        ? formulas[chosen.k] +
-          " · " +
-          chosen.w +
-          "×" +
-          chosen.h +
-          "　" +
-          (shift ? "ハイライトされた長方形を選択" : "固定結晶")
+        ? formulas[chosen.k] + " · " + chosen.w + "×" + chosen.h + "　固定結晶"
         : forecast?.value
           ? coord(forecast.p) +
             " へ交換 → " +
@@ -450,15 +456,15 @@ function App() {
               <Board
                 g={g}
                 waterPreview={waterPreview}
-                solutionPreview={active && item === "solution" ? emptyCells : []}
-                aimingWater={active && item === "water"}
-                selected={sel && !item ? (chosen ?? cell(sel)) : null}
+                solutionPreview={active && tool === "solution" ? emptyCells : []}
+                aiming={active && (tool === "water" || tool === "shift") ? tool : null}
+                selected={sel && (!tool || tool === "shift") ? (chosen ?? cell(sel)) : null}
                 targets={moves}
                 ghost={forecast?.n.events[0]?.outputs ?? []}
-                cue={active && !item ? (lesson.cue ?? []) : []}
+                cue={active && (!tool || tool === "shift") ? (lesson.cue ?? []) : []}
                 pick={pick}
                 drag={(from, to) => {
-                  if (!item) dispatch({ type: "swap", from, to });
+                  if (!tool) dispatch({ type: "swap", from, to });
                 }}
                 cancel={clear}
                 low={low}
@@ -498,72 +504,65 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="boardFoot" aria-live="polite">
-              <ArrowLeftRight />
-              {feedback}
+            <div className="itemTray" role="group" aria-label="盤面の道具">
+              <button
+                title="固定結晶を隣の同じ広さの区画と交換。通常は1、最終結晶・混晶は2チャージ"
+                aria-pressed={tool === "shift"}
+                disabled={!active || !g.charges}
+                onClick={() => toggleTool("shift")}
+              >
+                <Zap />
+                <span>強制交換</span>
+                <b>{g.charges}/3</b>
+              </button>
+              <button
+                title="二元化合物6個で1滴。3×3の結晶を溶かす"
+                aria-pressed={tool === "water"}
+                disabled={!active || !isTimed(g.mode) || g.water < WATER_THRESHOLD}
+                onClick={() => toggleTool("water")}
+              >
+                <Droplet />
+                <span>H₂Oボム</span>
+                <b>
+                  {g.water}/{WATER_THRESHOLD}
+                </b>
+              </button>
+              <button
+                title="空きマスすべてに元素を晶出。タイムアタックごとに1瓶"
+                aria-pressed={tool === "solution"}
+                disabled={!active || !isTimed(g.mode) || !g.solution || !vacancies}
+                onClick={() => toggleTool("solution")}
+              >
+                <FlaskConical />
+                <span>過飽和溶液</span>
+                <b>×{isTimed(g.mode) ? g.solution : 0}</b>
+              </button>
             </div>
-            {isTimed(g.mode) && g.phase !== "ended" && (
-              <div className="itemTray">
+            <div className="boardFoot">
+              <ArrowLeftRight />
+              <span role="status">{feedback}</span>
+              {active && !tool && chosen?.k === "Li6" && (
                 <button
-                  className="waterButton"
-                  title="二元化合物6個で1滴。3×3の結晶を溶かす"
-                  aria-pressed={item === "water"}
-                  disabled={!active || g.water < WATER_THRESHOLD}
-                  onClick={() => toggleItem("water")}
+                  disabled={g.charges >= 3}
+                  onClick={() => dispatch({ type: "harvest", id: chosen.id })}
                 >
-                  <Droplet /> {item === "water" ? "キャンセル" : "H₂Oボム"}{" "}
-                  <b>
-                    {g.water}/{WATER_THRESHOLD}
-                  </b>
+                  ⁶Li を採取
                 </button>
+              )}
+              {waterPreview && sel && (
                 <button
-                  title="空きマスすべてに元素を晶出。1プレイに1瓶"
-                  aria-pressed={item === "solution"}
-                  disabled={!active || !g.solution || !vacancies}
-                  onClick={() => toggleItem("solution")}
+                  disabled={!waterPreview.crystals.length}
+                  onClick={() => dispatch({ type: "dissolve", center: sel })}
                 >
-                  <FlaskConical /> {item === "solution" ? "キャンセル" : "過飽和溶液"}{" "}
-                  <b>×{g.solution}</b>
+                  溶かす
                 </button>
-                {waterPreview && sel && (
-                  <button
-                    className="confirmSolution"
-                    disabled={!waterPreview.crystals.length}
-                    onClick={() => dispatch({ type: "dissolve", center: sel })}
-                  >
-                    溶かす
-                  </button>
-                )}
-                {active && item === "solution" && (
-                  <button
-                    className="confirmSolution"
-                    onClick={() => dispatch({ type: "crystallize" })}
-                  >
-                    {vacancies}マスを埋める
-                  </button>
-                )}
-              </div>
-            )}
-            {active && chosen && (chosen.w * chosen.h > 1 || chosen.k === "Li6") && (
-              <div className="tools">
-                <strong>{formulas[chosen.k]}</strong>
-                {chosen.k === "Li6" ? (
-                  <button
-                    disabled={g.charges >= 3}
-                    onClick={() => dispatch({ type: "harvest", id: chosen.id })}
-                  >
-                    ⁶Li を採取
-                  </button>
-                ) : (
-                  <button
-                    disabled={g.charges < (collectible(chosen.k) ? 2 : 1)}
-                    onClick={() => setShift(!shift)}
-                  >
-                    {shift ? "交換をキャンセル" : "強制交換 ⚡" + (collectible(chosen.k) ? 2 : 1)}
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+              {active && tool === "solution" && (
+                <button onClick={() => dispatch({ type: "crystallize" })}>
+                  {vacancies}マスを埋める
+                </button>
+              )}
+            </div>
           </section>
           <aside>
             <section className="stats">
@@ -600,7 +599,6 @@ function App() {
                   ? "180秒で結晶を合成。まずは Li と Cl をつなげよう。"
                   : lesson.text}
               </p>
-              {lesson.done && <CrystalResult made={g.made} />}
               {g.phase === "ready" ? (
                 <>
                   <div className="smallButtons">
@@ -611,7 +609,7 @@ function App() {
                       <Shuffle /> 完全ランダム
                     </button>
                   </div>
-                  <div className="smallButtons">{lessonButtons}</div>
+                  <div className="smallButtons practiceButtons">{lessonButtons}</div>
                 </>
               ) : !isTimed(g.mode) && lesson.done ? (
                 <button
@@ -658,36 +656,17 @@ function App() {
                       <span>
                         {formulas[b.k]} <small>{collectionValue(b.k).toLocaleString()} pt</small>
                       </span>
-                      <button
-                        disabled={!active || g.charges < 2}
-                        onClick={() => {
-                          clear();
-                          select({ x: b.x, y: b.y });
-                          setShift(true);
-                          document.querySelector<HTMLElement>(".board")?.focus();
-                        }}
-                      >
-                        {coord(b)} を移動 ⚡2
-                      </button>
+                      <b>{coord(b)}</b>
                     </li>
                   ))}
                 </ul>
               )}
             </section>
-            <section className="card charge">
-              <h2>
-                <span className="chip gold">
-                  <Zap />
-                </span>
-                強制交換 <b>{g.charges} / 3</b>
-              </h2>
-              <div className="meter">
-                {[1, 2, 3].map((n) => (
-                  <i className={n <= g.charges ? "on" : ""} key={n} />
-                ))}
+            {lesson.done && (
+              <div className="practiceResult">
+                <CrystalResult made={g.made} />
               </div>
-              <p>⁶Li を採取して充電。固定結晶を隣の同じ広さの区画と交換できます。</p>
-            </section>
+            )}
           </aside>
         </div>
         <section
@@ -743,7 +722,7 @@ function App() {
               各材料は辺でつながる必要があります。点線は交換候補、ミントの網掛けは推奨手の生成位置。空き不足の材料は赤枠です。重力はなく、連鎖の後に元素を補充します。
             </p>
             <p>
-              最終結晶と混晶はタップで回収して得点。時間切れには盤面に残った分をまとめて回収します。最終結晶欄の「移動」から強制交換でき、対応する2種が隣り合うと混晶になります。⁶Li
+              最終結晶と混晶はタップで回収して得点。時間切れには盤面に残った分をまとめて回収します。盤面下の「強制交換」を押してから固定結晶と点線の移動先を順に選びます。通常は1チャージ、最終結晶・混晶は2チャージ。対応する2種が隣り合うと混晶になります。⁶Li
               は Li として使うか、採取して強制交換に使えます。
             </p>
             <p>

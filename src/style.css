@@ -12,6 +12,9 @@
 * {
   box-sizing: border-box;
 }
+html {
+  scrollbar-gutter: stable;
+}
 body {
   margin: 0;
   background: radial-gradient(#ded5ee 0.8px, transparent 1px) 0 0/15px 15px;
@@ -66,7 +69,7 @@ header {
 }
 .bar,
 main {
-  max-width: 1060px;
+  max-width: 1010px;
   margin: auto;
   padding: 0 22px;
 }
@@ -255,7 +258,7 @@ small,
 }
 .coordinates {
   display: grid;
-  grid-template-columns: 15px 1fr;
+  grid-template-columns: 15px minmax(0, 1fr);
   grid-template-rows: 15px auto;
 }
 .letters,
@@ -276,7 +279,9 @@ small,
 }
 .board {
   isolation: isolate;
+  width: 100%;
   aspect-ratio: 1;
+  align-self: start;
   grid-area: 2/2;
   position: relative;
   background: #27203d;
@@ -350,26 +355,41 @@ small,
 .mark.blocked {
   border: 2px solid #fa7594;
 }
-.boardFoot,
-.tools {
+.mark.cuePoint::before {
+  content: "";
+  position: absolute;
+  top: 6%;
+  left: 8%;
+  width: 9px;
+  height: 8px;
+  background: #fff09d;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.boardFoot {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 56px;
+  padding: 4px 14px 8px;
   font-size: 12px;
   font-weight: 580;
-  padding: 13px 16px;
   color: #614e76;
-  min-height: 42px;
 }
 .boardFoot svg {
   flex-shrink: 0;
   color: #7f58c7;
 }
-.tools {
-  padding-top: 0;
-  flex-wrap: wrap;
+.boardFoot [role="status"] {
+  flex: 1;
+  min-width: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
-.tools button {
+.boardFoot button {
+  flex: none;
+  min-height: 40px;
   background: #f4edff;
 }
 aside {
@@ -404,10 +424,6 @@ aside {
 .mint {
   background: #dff8ed;
   color: #348977;
-}
-.gold {
-  background: #fff0d2;
-  color: #ba7926;
 }
 .card p,
 dialog p {
@@ -477,29 +493,6 @@ dialog p {
   flex: 1;
   font-size: 12px;
   min-height: 34px;
-}
-.charge h2 b {
-  margin-left: auto;
-  color: #996628;
-  font-size: 14px;
-  font-weight: 600;
-}
-.meter {
-  display: flex;
-  gap: 4px;
-  margin: 10px 0;
-}
-.meter i {
-  flex: 1;
-  height: 6px;
-  border-radius: 4px;
-  background: #f0eaf1;
-}
-.meter .on {
-  background: linear-gradient(90deg, #ffb767, #ffdc84);
-}
-.charge p {
-  margin-bottom: 0;
 }
 .journal {
   margin: 16px 0;
@@ -700,12 +693,6 @@ dialog::backdrop {
   color: #8e739f;
   white-space: nowrap;
 }
-@media (min-width: 1100px) {
-  main,
-  .bar {
-    max-width: 1010px;
-  }
-}
 @media (max-width: 740px) {
   .bar,
   main {
@@ -745,7 +732,7 @@ dialog::backdrop {
   }
   .gameLayout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
   .gameLayout aside {
@@ -756,7 +743,7 @@ dialog::backdrop {
   .session,
   .journal,
   .finals,
-  .charge {
+  .practiceResult {
     grid-column: 1/-1;
   }
   .stats {
@@ -788,17 +775,40 @@ dialog::backdrop {
   }
   .session {
     grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: 4px;
   }
   .session h2 {
+    grid-area: 1 / 1;
+    min-height: 34px;
     font-size: 13px;
+  }
+  .session .practiceButtons {
+    grid-area: 1 / 2;
+    margin: 0;
+  }
+  .session .practiceButtons button {
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .session p {
+    grid-area: 2 / 1 / 3 / -1;
+    min-height: 2lh;
+    align-content: center;
+    margin: 0;
+    font-size: 12px;
+  }
+  .session .smallButtons:not(.practiceButtons),
+  .session .wide {
+    grid-area: 3 / 1 / 4 / -1;
+    margin: 0;
+    height: 36px;
   }
   .session .chip {
     width: 24px;
     height: 24px;
-  }
-  .session p {
-    margin: 5px 0 7px;
-    font-size: 12px;
   }
   .session .smallButtons button {
     padding: 5px;
@@ -823,7 +833,7 @@ dialog::backdrop {
     margin-left: 1px;
   }
   .boardFoot {
-    padding: 10px;
+    padding: 4px 10px 8px;
     font-size: 11px;
   }
   .journal {
@@ -842,7 +852,7 @@ dialog::backdrop {
     border-radius: 5px;
   }
   .coordinates {
-    grid-template-columns: 12px 1fr;
+    grid-template-columns: 12px minmax(0, 1fr);
     grid-template-rows: 11px auto;
   }
   .letters,
@@ -852,11 +862,14 @@ dialog::backdrop {
   .card .wide {
     min-height: 34px;
   }
-  .tools {
-    padding: 0 10px 8px;
-  }
   .boardWrap:has(.veil) {
     min-height: 220px;
+  }
+}
+@media (max-width: 380px) {
+  .session .practiceButtons svg,
+  .session h2 .chip {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -944,27 +957,53 @@ dialog::backdrop {
 }
 
 .itemTray {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 0 14px 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 12px 12px 0;
 }
 .itemTray button {
-  min-height: 36px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 6px;
   font-size: 12px;
+  white-space: nowrap;
   color: #366777;
   background: #f1fbfc;
   border-color: #c2dfe4;
+  touch-action: manipulation;
 }
-.itemTray button[aria-pressed="true"],
-.itemTray .confirmSolution {
-  background: #d1f1f4;
-  border-color: #49a6b2;
-  color: #234f62;
+.itemTray button:first-child {
+  color: #805c21;
+  background: #fff8e9;
+  border-color: #ead6ab;
 }
-.itemTray button b {
+.itemTray button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+.itemTray b {
   font-variant-numeric: tabular-nums;
-  color: #447686;
+}
+@media (max-width: 520px), (min-width: 741px) and (max-width: 880px) {
+  .itemTray {
+    gap: 4px;
+    padding: 10px 7px 0;
+  }
+  .itemTray button {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: 0 4px;
+    line-height: 1.25;
+  }
+  .itemTray svg {
+    grid-row: span 2;
+    width: 15px;
+  }
+  .itemTray b {
+    font-size: 10px;
+  }
 }
 .mark.waterRange {
   border: 2px solid #a6f8ff;
@@ -1111,14 +1150,12 @@ dialog::backdrop {
   letter-spacing: 0.25px;
   color: #587467;
 }
-.finals li button {
-  padding: 6px 8px;
-  font-size: 11px;
+.finals li b {
+  color: #476d63;
+  font-size: 12px;
 }
 .mark.collectible {
-  overflow: hidden;
-  border: 2px solid #ffeaa4;
-  box-shadow: inset 0 0 10px #fff3a7b0;
+  clip-path: inset(3% 3% round 8%);
 }
 .collectible svg {
   position: absolute;
@@ -1129,10 +1166,6 @@ dialog::backdrop {
   color: #fff6c4;
   fill: #fff0a6;
   filter: drop-shadow(0 1px 2px #654466);
-}
-.mark.collectible.grand {
-  border-color: #fff3bd;
-  box-shadow: inset 0 0 12px #ffc6ed;
 }
 .collectible:not(.quiet)::before {
   content: "";

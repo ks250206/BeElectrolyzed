@@ -1,4 +1,4 @@
-import { formulas, type Product } from "../game/chemistry";
+import { collectible, formulas, type Product } from "../game/chemistry";
 export const palette: Record<Product, string[]> = {
   Li: ["#ffacce", "#ff78ad", "#dc4385", "#943c73"],
   S: ["#fff09a", "#ffd452", "#e8a32f", "#976335"],
@@ -279,13 +279,15 @@ export function tile(k: Product, w = 1, h = 1) {
     const width = canvas.width,
       height = canvas.height,
       [light, mid, deep, edge] = palette[k];
-    c.beginPath();
-    c.roundRect(4, 4, width - 8, height - 8, 19);
-    c.fillStyle = deep;
-    c.fill();
-    c.strokeStyle = edge;
-    c.lineWidth = 5;
-    c.stroke();
+    if (!collectible(k)) {
+      c.beginPath();
+      c.roundRect(4, 4, width - 8, height - 8, 19);
+      c.fillStyle = deep;
+      c.fill();
+      c.strokeStyle = edge;
+      c.lineWidth = 5;
+      c.stroke();
+    }
     const rim: XY[] = [
       [8, 23],
       [23, 8],

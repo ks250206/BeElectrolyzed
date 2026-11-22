@@ -94,7 +94,7 @@ interface Props {
   g: Game;
   selected: Rect | null;
   waterPreview: WaterArea | null;
-  aimingWater: boolean;
+  aiming: "water" | "shift" | null;
   solutionPreview: Point[];
   targets: Rect[];
   ghost: Rect[];
@@ -174,7 +174,7 @@ function CollectionEffects({
 export function Board({
   g,
   waterPreview,
-  aimingWater,
+  aiming,
   solutionPreview,
   selected,
   targets,
@@ -194,8 +194,8 @@ export function Board({
     cavern(bg.current!);
   }, []);
   useEffect(() => {
-    if (aimingWater) ref.current?.focus({ preventScroll: true });
-  }, [aimingWater]);
+    if (aiming) ref.current?.focus({ preventScroll: true });
+  }, [aiming]);
   const point = (x: number, y: number) => {
     const r = ref.current!.getBoundingClientRect();
     return {
@@ -250,7 +250,8 @@ export function Board({
           coord(cursor) +
           " " +
           (atCursor
-            ? formulas[atCursor.k] + (collectible(atCursor.k) ? "、タップまたはEnterで回収" : "")
+            ? formulas[atCursor.k] +
+              (!aiming && collectible(atCursor.k) ? "、タップまたはEnterで回収" : "")
             : "空き")
         }
         onKeyDown={keys}
@@ -315,7 +316,14 @@ export function Board({
           </>
         )}
         {highlight(solutionPreview.map(unit), "solutionTarget")}
-        {highlight(cue, "cue")}
+        {highlight(
+          cue.filter((r) => r.w * r.h === 1),
+          "cue",
+        )}
+        {highlight(
+          cue.filter((r) => r.w * r.h > 1),
+          "cuePoint",
+        )}
         {highlight(ghost, "ghost")}
         {highlight(targets, "destination")}
         {highlight(g.blocked, "blocked")}
