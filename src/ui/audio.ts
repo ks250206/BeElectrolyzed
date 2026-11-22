@@ -28,8 +28,15 @@ function note(
   osc.start(start);
   osc.stop(start + duration + 0.01);
 }
-export function sound(kind: "drop" | "move" | "wave" | "final" | "attack", chain = 1) {
+export function sound(kind: "drop" | "move" | "wave" | "collect" | "final" | "attack", chain = 1) {
   const base = 392 * Math.pow(1.12246, Math.min(8, chain - 1));
+  if (kind === "collect") {
+    [1, 1.25, 1.5, 2, 2.5, 3, 4].forEach((ratio, i) =>
+      note(base * ratio, i * 0.046, 0.22 + i * 0.025, 0.038),
+    );
+    note(base * 2, 0.35, 0.46, 0.026, "triangle");
+    return;
+  }
   if (kind === "move") {
     note(440, 0, 0.045, 0.016);
     return;

@@ -1,39 +1,46 @@
-import { it, expect } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 import { act, create, start, type Action } from "../src/game/game";
 import { at } from "../src/game/spatial";
-const exchange = (x: number, y: number, dx: number, dy: number): Action => ({
-  type: "swap",
-  from: { x, y },
-  to: { x: x + dx, y: y + dy },
-});
-it("plays eight normal-mode turns and collects both descendants of a newly synthesized phosphorus sulfide", () => {
+it("collects an LGPS grown from a newly synthesized phosphorus sulfide and its two phosphate products", () => {
   let g = start(create(24), 0);
-  const moves: Action[] = [
-    exchange(0, 3, 0, -1),
-    { type: "shift", id: at(g.board, { x: 8, y: 8 })!.id, to: { x: 6, y: 8 } },
-    exchange(8, 5, 1, 0),
-    exchange(4, 9, -1, 0),
-    exchange(4, 2, -1, 0),
-    exchange(2, 4, 0, -1),
-    { type: "harvest", id: at(g.board, { x: 5, y: 0 })!.id },
-    exchange(6, 3, 0, -1),
-  ];
-  let sulfideId: number | undefined;
-  let phosphates: number[] = [];
-  const collected: number[] = [];
-  for (const [i, a] of moves.entries()) {
-    g = act(g, a, (i + 1) * 2000);
-    expect(g.turn).toBe(i + 1);
-    for (const e of g.events) {
-      if (i === 4 && e.rule.product === "P2S5") sulfideId = e.outputs[0].id;
-      if (e.rule.product === "Li3PS4" && e.inputs.some((b) => b.id === sulfideId))
-        phosphates = e.outputs.map((b) => b.id);
-      if (e.rule.product === "LPSCl")
-        collected.push(...e.inputs.filter((b) => phosphates.includes(b.id)).map((b) => b.id));
-    }
-  }
-  expect(sulfideId).toBeDefined();
-  expect(phosphates).toHaveLength(2);
-  expect(collected.sort()).toEqual(phosphates.sort());
-  expect(g.collected).toBe(5);
+  const play = (a: Action) => {
+    const n = act(g, a, (g.turn + 1) * 1800);
+    expect(n.turn).toBe(g.turn + 1);
+    g = n;
+  };
+  const id = (x: number, y: number) => at(g.board, { x, y })!.id;
+  const shift = (x: number, y: number, tx: number, ty: number) =>
+    play({ type: "shift", id: id(x, y), to: { x: tx, y: ty } });
+  const swap = (x: number, y: number, tx: number, ty: number) =>
+    play({ type: "swap", from: { x, y }, to: { x: tx, y: ty } });
+  const collect = (x: number, y: number) => play({ type: "collect", id: id(x, y) });
+  shift(8, 8, 6, 8);
+  const sulfide = g.events.find((e) => e.rule.product === "P2S5")!.outputs[0];
+  collect(5, 8);
+  swap(9, 4, 9, 5);
+  collect(6, 3);
+  swap(4, 6, 3, 6);
+  collect(2, 2);
+  swap(3, 7, 2, 7);
+  play({ type: "harvest", id: id(5, 0) });
+  swap(3, 9, 3, 8);
+  swap(7, 10, 6, 10);
+  swap(1, 2, 0, 2);
+  swap(11, 0, 11, 1);
+  swap(10, 11, 9, 11);
+  shift(7, 9, 8, 9);
+  play({ type: "harvest", id: id(5, 10) });
+  swap(6, 3, 6, 4);
+  swap(7, 1, 7, 2);
+  swap(9, 9, 8, 9);
+  shift(10, 7, 11, 7);
+  const phosphate = g.events.find((e) => e.rule.product === "Li3PS4")!;
+  expect(phosphate.inputs).toContainEqual(sulfide);
+  const final = g.events.find((e) => e.rule.product === "LGPS")!;
+  expect(final.inputs).toEqual(expect.arrayContaining(phosphate.outputs));
+  expect(final.points).toBe(0);
+  collect(8, 8);
+  expect(g.pickups).toEqual(final.outputs);
+  expect(g.collected).toBe(4);
+  expect(g.score).toBe(6780);
 });

@@ -347,18 +347,6 @@ small,
   display: block;
   border-style: dotted;
 }
-.mark.locked {
-  border: 2px solid #fff2b5;
-}
-.locked svg {
-  background: #493366;
-  color: white;
-  position: absolute;
-  right: 1px;
-  top: 1px;
-  padding: 2px;
-  border-radius: 4px;
-}
 .mark.blocked {
   border: 2px solid #fa7594;
 }
@@ -489,55 +477,6 @@ dialog p {
   flex: 1;
   font-size: 12px;
   min-height: 34px;
-}
-.locks label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 10px 0;
-}
-.locks select {
-  color: #58446a;
-  font-size: 12px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 5px 8px;
-  background: #fbf9fe;
-}
-.slots {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-.slots > div {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  border: 1px dashed #d8cbe3;
-  border-radius: 9px;
-  background: #faf8fc;
-  padding: 6px 3px;
-  min-height: 36px;
-  color: #81728c;
-  font-size: 12px;
-}
-.slots svg {
-  color: #bba8cb;
-}
-.slots .filled {
-  background: #ebfff5;
-  border-color: #8ac8ac;
-  color: #2f715a;
-}
-.slots canvas {
-  width: 24px;
-}
-.slots button {
-  font-size: 10px;
-  padding: 3px 6px;
 }
 .charge h2 b {
   margin-left: auto;
@@ -816,7 +755,7 @@ dialog::backdrop {
   .stats,
   .session,
   .journal,
-  .locks,
+  .finals,
   .charge {
     grid-column: 1/-1;
   }
@@ -1145,4 +1084,198 @@ dialog::backdrop {
 .crystalResult small {
   font-size: 10px;
   letter-spacing: 0;
+}
+.card.finals p {
+  margin-bottom: 0;
+}
+.finals ul {
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+.finals li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #f1faf6;
+  padding: 5px 7px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.finals li small {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.25px;
+  color: #587467;
+}
+.finals li button {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.mark.collectible {
+  overflow: hidden;
+  border: 2px solid #ffeaa4;
+  box-shadow: inset 0 0 10px #fff3a7b0;
+}
+.collectible svg {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  color: #fff6c4;
+  fill: #fff0a6;
+  filter: drop-shadow(0 1px 2px #654466);
+}
+.mark.collectible.grand {
+  border-color: #fff3bd;
+  box-shadow: inset 0 0 12px #ffc6ed;
+}
+.collectible:not(.quiet)::before {
+  content: "";
+  position: absolute;
+  inset: -60% -100%;
+  background: linear-gradient(
+    115deg,
+    transparent 42%,
+    #ffffff99 49%,
+    #fffbdbaa 50%,
+    transparent 57%
+  );
+  animation: gemSheen 4.2s var(--offset) infinite;
+}
+.collectible:not(.quiet) svg {
+  animation: gemTwinkle 4.2s var(--offset) infinite;
+}
+@keyframes gemSheen {
+  0%,
+  66% {
+    opacity: 0;
+    transform: translateX(-60%);
+  }
+  72% {
+    opacity: 1;
+  }
+  92%,
+  100% {
+    opacity: 0;
+    transform: translateX(60%);
+  }
+}
+@keyframes gemTwinkle {
+  0%,
+  68%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.75;
+  }
+  80% {
+    transform: scale(1.26);
+    opacity: 1;
+  }
+}
+.pickupFx {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 8;
+  animation: pickupLife 1.2s ease-out both;
+}
+.pickupFx .halo,
+.pickupFx .echo {
+  position: absolute;
+  inset: 6%;
+  border: 2px solid #fff2ad;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, #ffeab585, transparent 70%);
+  box-shadow: 0 0 12px #f3b5ff;
+  animation: pickupRing 0.82s ease-out both;
+}
+.pickupFx .echo {
+  border-color: #b9fff2;
+  animation-delay: 0.12s;
+}
+.pickupStar {
+  position: absolute;
+  font-size: clamp(13px, 1.7vw, 25px);
+  font-style: normal;
+  text-shadow: 0 0 5px currentColor;
+  animation: pickupFlight 1s var(--wait) cubic-bezier(0.18, 0.55, 0.34, 1) both;
+}
+.pickupFx b {
+  font-size: clamp(19px, 2.8vw, 42px);
+  font-weight: 690;
+  text-shadow:
+    0 2px 2px #53326e,
+    0 0 5px #61466a;
+  color: #fff6be;
+  z-index: 1;
+}
+.pickupFx:not(.quiet) b {
+  animation: pickupValue 1s ease-out both;
+}
+.pickupFx.grand b {
+  color: #baffdf;
+}
+.pickupFx.quiet {
+  animation-timing-function: steps(1, end);
+}
+.veil.afterPickup {
+  animation: showResult 0.25s 0.95s backwards;
+}
+@keyframes pickupLife {
+  0%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pickupRing {
+  from {
+    transform: scale(0.28);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+@keyframes pickupFlight {
+  from {
+    transform: rotate(var(--a)) translateY(0) scale(0.25);
+    opacity: 0;
+  }
+  12%,
+  65% {
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--a)) translateY(var(--length)) rotate(50deg) scale(0.55);
+    opacity: 0;
+  }
+}
+@keyframes pickupValue {
+  from {
+    transform: scale(0.7);
+  }
+  30% {
+    transform: scale(1.13);
+  }
+  to {
+    transform: translateY(-10px);
+  }
+}
+@keyframes showResult {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

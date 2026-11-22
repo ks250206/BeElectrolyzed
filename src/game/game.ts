@@ -1,12 +1,11 @@
 import {
-  byProduct,
-  endpoints,
+  collectible,
+  collectionValue,
   formulas,
   recipes,
   shape,
   type Product,
   type Recipe,
-  type Target,
 } from "./chemistry";
 import {
   N,
@@ -35,7 +34,6 @@ export interface Reaction {
   outputs: Block[];
   points: number;
   depth: number;
-  retained: boolean;
 }
 export interface Game {
   board: Block[];
@@ -45,7 +43,7 @@ export interface Game {
   mode: Mode;
   remaining: number;
   since: number;
-  target: Target;
+  pickups: Block[];
   charges: number;
   water: number;
   solution: number;
@@ -67,8 +65,7 @@ export type Action =
   | { type: "dissolve"; center: Point }
   | { type: "swap"; from: Point; to: Point }
   | { type: "shift"; id: number; to: Point }
-  | { type: "harvest" | "release"; id: number }
-  | { type: "reserve"; target: Target };
+  | { type: "harvest" | "collect"; id: number };
 export const WATER_THRESHOLD = 6;
 export interface WaterArea {
   region: Rect;
@@ -83,7 +80,9 @@ export function waterArea(board: Block[], center: Point): WaterArea {
   };
   const crystals = board.filter(
     (b) =>
-      !b.locked && contains(region, b) && contains(region, { x: b.x + b.w - 1, y: b.y + b.h - 1 }),
+      !collectible(b.k) &&
+      contains(region, b) &&
+      contains(region, { x: b.x + b.w - 1, y: b.y + b.h - 1 }),
   );
   return { region, crystals };
 }
@@ -95,7 +94,9 @@ function random(g: Game) {
 function put(g: Game, k: Product, x: number, y: number, w = 1, h = 1) {
   g.board.push({ k, x, y, w, h, id: g.nextId++ });
 }
-const metalSupply: Product[] = [
+const elementSupply: Product[] = [
+  "Br",
+  "Cl",
   "Ge",
   "Sn",
   "P",
@@ -115,11 +116,9 @@ const metalSupply: Product[] = [
   "S",
   "P",
 ];
-const defaultSupply: Product[] = ["Br", "Cl", ...metalSupply];
 // Keep the established draw order so shared seeds replay the same exchanges.
 function drawElement(g: Game): Product {
-  const bag = g.target === "MixedM" ? metalSupply : defaultSupply;
-  return bag[Math.floor(random(g) * bag.length)];
+  return elementSupply[Math.floor(random(g) * elementSupply.length)];
 }
 function supply(g: Game, exclude: Point[] = [], isotopeAllowance = 0) {
   const vacancies = vacantCells(g.board);
@@ -151,7 +150,7 @@ export function create(seed: number, mode: Mode = "attack"): Game {
     mode,
     remaining: INITIAL_TIME,
     since: 0,
-    target: "off",
+    pickups: [],
     charges: 1,
     water: 0,
     solution: isTimed(mode) ? 1 : 0,
@@ -210,23 +209,33 @@ export function clock(g: Game, now: number): Game {
   if (g.phase !== "playing" || !isTimed(g.mode)) return g;
   const remaining = Math.max(0, g.remaining - Math.max(0, now - g.since));
   if (remaining) return { ...g, remaining, since: Math.max(now, g.since) };
-  const locks = g.board.filter((b) => b.locked);
-  return {
+  const ended: Game = {
     ...g,
     phase: "ended",
     remaining: 0,
-    score: g.score + locks.reduce((s, b) => s + byProduct.get(b.k)!.points, 0),
-    collected: g.collected + locks.length,
-    board: g.board.filter((b) => !b.locked),
-    message: "タイムアップ！ 予約結晶を精算しました。",
+    events: [],
+    itemEffect: null,
+    message: "タイムアップ！",
   };
+  const finals = g.board.filter((b) => collectible(b.k));
+  collect(ended, finals);
+  if (finals.length)
+    ended.message = "タイムアップ！ " + finals.length + "個の結晶を自動回収しました";
+  return ended;
+}
+function collect(g: Game, crystals: Block[]) {
+  g.pickups = crystals;
+  const removed = new Set(crystals);
+  g.board = g.board.filter((b) => !removed.has(b));
+  g.collected += crystals.length;
+  g.score += crystals.reduce((n, b) => n + collectionValue(b.k), 0);
 }
 export function pause(g: Game, now: number): Game {
   const t = clock(g, now);
   return t.phase === "playing" ? { ...t, phase: "paused" } : t;
 }
 export function destinations(g: Game, b: Block) {
-  if (b.w * b.h === 1 || g.charges < (b.locked ? 2 : 1)) return [];
+  if (b.w * b.h === 1 || g.charges < (collectible(b.k) ? 2 : 1)) return [];
   return dirs
     .map(([dx, dy]) => ({ ...b, x: b.x + dx * b.w, y: b.y + dy * b.h }))
     .filter(
@@ -275,31 +284,16 @@ function resolve(g: Game, changed: Block[], anchor: Point) {
           }
           break;
         }
-        const retained =
-          rule.tier === 3 &&
-          g.target !== "off" &&
-          endpoints[g.target].includes(rule.product) &&
-          !g.board.some((b) => b.locked && b.k === rule.product);
-        const points = retained
-          ? 0
-          : rule.points +
-            (rule.tier === 4 ? inputs.reduce((s, b) => s + byProduct.get(b.k)!.points, 0) : 0);
+        const points = rule.tier >= 3 ? 0 : rule.points;
         g.score += points;
         g.made[rule.product] = (g.made[rule.product] ?? 0) + outputs.length;
         if (rule.tier === 1) g.water = Math.min(WATER_THRESHOLD, g.water + outputs.length);
         g.nextId += outputs.length;
         g.board = g.board.filter((b) => !inputs.includes(b));
-        if (rule.tier < 3 || retained) {
-          outputs.forEach((b) => (b.locked = retained));
-          g.board.push(...outputs);
-          newProducts.push(...outputs);
-        }
-        if (rule.tier === 3 && !retained) g.collected++;
-        if (rule.tier === 4) {
-          g.batches++;
-          g.collected += inputs.length;
-        }
-        g.events.push({ rule, inputs, outputs, depth, points, retained });
+        g.board.push(...outputs);
+        newProducts.push(...outputs);
+        if (rule.tier === 4) g.batches++;
+        g.events.push({ rule, inputs, outputs, depth, points });
       }
     }
     frontier = newProducts;
@@ -312,6 +306,7 @@ export function act(previous: Game, a: Action, now: number, refill = true): Game
   if (t.phase !== "playing") return t;
   const g: Game = {
     ...t,
+    pickups: [],
     board: [...t.board],
     made: { ...t.made },
     itemEffect: null,
@@ -322,14 +317,6 @@ export function act(previous: Game, a: Action, now: number, refill = true): Game
   const invalid = (message: string) => ({ ...t, message });
   let changed: Block[] = [];
   let anchor: Point = { x: 0, y: 0 };
-  if (a.type === "reserve") {
-    if (g.board.some((b) => b.locked)) return invalid("予約を変更するには保持中の結晶を回収");
-    return {
-      ...g,
-      target: a.target,
-      message: a.target === "off" ? "自動回収に設定" : "合成前の予約を設定しました",
-    };
-  }
   if (a.type === "crystallize") {
     if (!g.solution) return invalid("過飽和溶液は使用済みです");
     const cells = vacantCells(g.board);
@@ -401,22 +388,21 @@ export function act(previous: Game, a: Action, now: number, refill = true): Game
         changed.push(moved);
         return moved;
       });
-      g.charges -= b.locked ? 2 : 1;
+      g.charges -= collectible(b.k) ? 2 : 1;
       anchor = r;
     } else {
       if (a.type === "harvest" && (b.k !== "Li6" || g.charges >= 3))
         return invalid("⁶Li の採取はチャージ2以下で可能");
-      if (a.type === "release" && !b.locked) return invalid("保持中の結晶を選択");
-      g.board = g.board.filter((v) => v !== b);
-      changed = contacts(b, indexBoard(g.board));
+      if (a.type === "collect" && !collectible(b.k)) return invalid("完成した結晶を選択");
       if (a.type === "harvest") {
+        g.board = g.board.filter((v) => v !== b);
         g.charges++;
         g.message = "⁶Li を採取 · チャージ +1";
       } else {
-        g.score += byProduct.get(b.k)!.points;
-        g.collected++;
-        g.message = formulas[b.k] + " を回収";
+        collect(g, [b]);
+        g.message = formulas[b.k] + " を回収 · +" + collectionValue(b.k).toLocaleString() + " pt";
       }
+      changed = contacts(b, indexBoard(g.board));
     }
   }
   g.turn++;

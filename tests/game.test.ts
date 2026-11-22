@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vite-plus/test";
-import { byProduct, formulas, recipes, type Product } from "../src/game/chemistry";
+import { byProduct, collectible, formulas, recipes, type Product } from "../src/game/chemistry";
 import { create, start, act, clock, pause, destinations, type Game } from "../src/game/game";
 import { at, indexBoard, match, overlaps, plan, type Block } from "../src/game/spatial";
 const begin = () => start(create(24, "rare"), 0);
@@ -49,22 +49,23 @@ describe("chemistry", () => {
     expect(match(r, [separate[0]], indexBoard(separate), new Set())).toBeUndefined();
   });
 });
-it("collects an ordinary final on the normal seeded opening", () => {
+it("keeps an ordinary final for collection on the normal seeded opening", () => {
   for (let i = 0; i < 35; i++) {
     const g = swap(start(create(i), 0), 0, 3, 0, 2);
-    expect(g.collected).toBeGreaterThan(0);
+    expect(g.collected).toBe(0);
+    expect(g.board.some((b) => b.k === "LPSCl")).toBe(true);
     expect(g.events.some((e) => e.rule.product === "LPSCl")).toBe(true);
     expect(g.events.some((e) => e.depth === 2)).toBe(true);
   }
 });
-it("plays the two-lock route, harvest and rectangle exchange for a two-unit batch", () => {
-  let g = act(begin(), { type: "reserve", target: "MixedX" }, 0);
+it("plays the unreserved endpoint route, harvest and rectangle exchange for a two-unit batch", () => {
+  let g = begin();
   g = swap(g, 0, 3, 0, 2);
   const cl = g.board.find((b) => b.k === "LPSCl")!;
-  expect(cl.locked).toBe(true);
-  expect(g.score).toBe(g.events.filter((e) => !e.retained).reduce((s, e) => s + e.points, 0));
+  expect(cl).toBeDefined();
+  expect(g.score).toBe(g.events.reduce((s, e) => s + e.points, 0));
   g = swap(g, 8, 3, 8, 2);
-  expect(g.board.filter((b) => b.locked)).toHaveLength(2);
+  expect(g.board.filter((b) => collectible(b.k))).toHaveLength(2);
   g = act(g, { type: "harvest", id: at(g.board, { x: 5, y: 0 })!.id }, 100);
   expect(g.charges).toBe(2);
   const r = destinations(g, cl).find((v) => v.x === 4 && v.y === 2);
@@ -73,15 +74,22 @@ it("plays the two-lock route, harvest and rectangle exchange for a two-unit batc
   g = act(g, { type: "shift", id: cl.id, to: r! }, 100);
   expect(g.events[0].rule.product).toBe("MixedX");
   expect(g.events[0].outputs[0].units).toBe(2);
-  expect(g.events[0].points).toBe(10000);
+  expect(g.events[0].points).toBe(0);
+  expect(g.board.filter((b) => collectible(b.k)).map((b) => b.k)).toEqual(["MixedX"]);
+  expect(g.collected).toBe(0);
   expect(g.score - before).toBe(g.events.reduce((s, e) => s + e.points, 0));
   expect(g.batches).toBe(1);
   expect(g.made.MixedX).toBe(1);
   expect(g.made.LPSCl).toBe(1);
   expect(g.made.LPSBr).toBe(1);
+  const collected = act(g, { type: "collect", id: g.events[0].outputs[0].id }, 200);
+  expect(collected.score).toBe(
+    g.score + 10000 + collected.events.reduce((n, e) => n + e.points, 0),
+  );
+  expect(collected.collected).toBe(1);
 });
 it("preserves identity in a legal exchange and rejects cuts, overlap, distant or offboard moves for free", () => {
-  const b = { ...block("LPSCl", 2, 2, 2, 3), locked: true };
+  const b = block("LPSCl", 2, 2, 2, 3);
   const isotope = block("Li6", 4, 2);
   let g = { ...begin(), board: [b, isotope, block("Li2S", 3, 5, 2)], charges: 3 };
   for (const to of [
@@ -107,23 +115,17 @@ it("keeps isotopes at cap, accepts them as lithium without granting charge", () 
   expect(n.charges).toBe(3);
   expect(n.events[0].rule.product).toBe("LiCl");
 });
-it("settles locks once at release or deadline, never advances while paused or after timeout", () => {
-  let g = swap(
-    act(start(create(2), 1000), { type: "reserve", target: "MixedX" }, 1000),
-    0,
-    3,
-    0,
-    2,
-  );
-  const b = g.board.find((v) => v.locked)!;
-  const released = act(g, { type: "release", id: b.id }, 2000);
+it("settles each final once at collection or deadline, never advances while paused or after timeout", () => {
+  let g = swap(start(create(2), 1000), 0, 3, 0, 2);
+  const b = g.board.find((v) => collectible(v.k))!;
+  const released = act(g, { type: "collect", id: b.id }, 2000);
   expect(released.made.LPSCl).toBe(g.made.LPSCl);
   expect(released.score).toBe(g.score + 1000 + released.events.reduce((s, e) => s + e.points, 0));
-  expect(act(released, { type: "release", id: b.id }, 2100).score).toBe(released.score);
+  expect(act(released, { type: "collect", id: b.id }, 2100).score).toBe(released.score);
   g = pause(g, 2500);
   expect(clock(g, 99999)).toEqual(g);
   g = start(g, 100000);
-  const expired = act(g, { type: "release", id: b.id }, 300000);
+  const expired = act(g, { type: "collect", id: b.id }, 300000);
   expect(expired.phase).toBe("ended");
   expect(expired.score).toBe(g.score + 1000);
   expect(clock(expired, 400000)).toEqual(expired);
@@ -153,10 +155,9 @@ it("tries a fitting connected subset when the first germanate placement is block
   expect(n.events[0].rule.product).toBe("Li4GeS4");
   expect(n.events[0].inputs.map((v) => v.id).sort()).toEqual([a.id, c.id, ge.id].sort());
 });
-for (const type of ["harvest", "release"] as const)
+for (const type of ["harvest", "collect"] as const)
   it(type + " opens a blocked footprint before refill and retries the local reaction", () => {
-    const plug =
-      type === "harvest" ? block("Li6", 3, 3) : { ...block("LPSBr", 3, 3, 2, 3), locked: true };
+    const plug = type === "harvest" ? block("Li6", 3, 3) : block("LPSBr", 3, 3, 2, 3);
     const ingredients = [block("GeS2", 1, 2, 2), block("Li2S", 3, 2, 2), block("Li2S", 5, 2, 2)];
     const g = { ...begin(), nextId: 1000, board: packed([...ingredients, plug], [{ x: 2, y: 3 }]) };
     expect(plan(byProduct.get("Li4GeS4")!, ingredients, g.board, plug, 1000)).toBeUndefined();
@@ -197,17 +198,18 @@ it("protects a spatially blocked final from a lower-priority phosphate reaction"
   expect(n.board.some((b) => b.id === inputs[1].id)).toBe(true);
 });
 it("combines the Ge/Sn endpoints as one two-unit batch", () => {
-  const ge = { ...block("LGPS", 0, 0, 2, 3), locked: true },
-    sn = { ...block("LSPS", 4, 0, 2, 3), locked: true };
+  const ge = block("LGPS", 0, 0, 2, 3),
+    sn = block("LSPS", 4, 0, 2, 3);
   const n = act(
-    { ...begin(), target: "MixedM", charges: 2, board: [ge, sn] },
+    { ...begin(), charges: 2, board: [ge, sn] },
     { type: "shift", id: ge.id, to: { x: 2, y: 0 } },
     0,
     false,
   );
   expect(n.events[0].rule.product).toBe("MixedM");
   expect(n.events[0].outputs[0].units).toBe(2);
-  expect(n.score).toBe(15600);
+  expect(n.score).toBe(0);
+  expect(clock({ ...n, mode: "attack" }, 180000).score).toBe(15600);
 });
 it("opens the Ge or Sn route in ordinary play with one legal exchange and two distinct phosphates", () => {
   for (const seed of [24, 25]) {
@@ -226,4 +228,19 @@ it("banks a sixth-swap isotope opportunity if the workspace is full", () => {
   g = swap({ ...g, board: g.board.slice(0, 130) }, 0, 0, 1, 0);
   expect(g.isotopeDue).toBe(false);
   expect(g.board.filter((b) => b.k === "Li6")).toHaveLength(1);
+});
+it("settles every uncollected crystal, duplicate endpoints and rare batches at once, only once", () => {
+  const finals = [
+    block("LPSBr", 0, 0, 2, 3),
+    block("LPSBr", 3, 0, 2, 3),
+    { ...block("MixedX", 6, 0, 3, 3), units: 2 },
+    block("LGPS", 0, 5, 3, 2),
+  ];
+  const g = { ...start(create(1), 0), board: [...finals, block("Li", 5, 5)], score: 180 };
+  const end = act(g, { type: "collect", id: finals[0].id }, 180000);
+  expect(end.pickups).toEqual(finals);
+  expect(end.collected).toBe(4);
+  expect(end.score).toBe(13980);
+  expect(end.board).toHaveLength(1);
+  expect(act(end, { type: "collect", id: finals[0].id }, 180100)).toBe(end);
 });

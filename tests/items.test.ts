@@ -29,12 +29,12 @@ it("earns one drop from six binaries and records all actual products during a ch
   expect(clock(g, 180001).made).toEqual(g.made);
 });
 
-it("dissolves only fully enclosed unlocked crystals and recrystallizes their footprint once", () => {
+it("dissolves only fully enclosed non-final crystals and recrystallizes their footprint once", () => {
   const board: Block[] = [
     { id: 1, k: "Li2S", x: 0, y: 0, w: 2, h: 1 },
     { id: 2, k: "Li6", x: 0, y: 1, w: 1, h: 1 },
     { id: 3, k: "Li3PS4", x: 2, y: 1, w: 2, h: 2 },
-    { id: 4, k: "LPSCl", x: 4, y: 0, w: 2, h: 3, locked: true },
+    { id: 4, k: "LPSCl", x: 4, y: 0, w: 2, h: 3 },
   ];
   const g = { ...start(create(1), 0), board, water: 6 };
   const center = { x: 0, y: 0 };

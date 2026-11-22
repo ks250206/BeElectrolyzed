@@ -12,7 +12,6 @@ import {
   Gem,
   GraduationCap,
   Layers,
-  LockKeyhole,
   Pause,
   Play,
   RotateCcw,
@@ -39,15 +38,7 @@ import {
   type Mode,
   type Reaction,
 } from "./game/game";
-import {
-  byProduct,
-  endpoints,
-  equation,
-  formulas,
-  recipes,
-  shape,
-  type Target,
-} from "./game/chemistry";
+import { collectible, collectionValue, equation, formulas, recipes, shape } from "./game/chemistry";
 import {
   at,
   cell,
@@ -63,7 +54,7 @@ import { CrystalResult } from "./ui/CrystalResult";
 import { Art, Board, coord } from "./ui/Board";
 import { sound, unlock } from "./ui/audio";
 const title = ["", "二元化合物", "中間化合物", "最終結晶", "混晶バッチ"];
-const targetName = { off: "自動回収", MixedX: "Cl / Br 混晶", MixedM: "Ge / Sn 混晶" };
+
 function seed() {
   const v = new URLSearchParams(location.search).get("seed");
   return v !== null && Number.isInteger(Number(v))
@@ -100,25 +91,28 @@ function guide(g: Game): { text: string; action?: Action; cue?: Rect[]; done?: b
     return {
       text:
         g.turn === 0
-          ? "A4 の Li を A3 へ。LiCl を経て最終結晶を回収！"
-          : "元素を選ぶと、交換先と合成候補を確認できます。",
+          ? "A4 の Li を A3 へ。LiCl を経て最終結晶を作ろう！"
+          : "輝く最終結晶をタップして回収。混晶を狙うなら盤面に残そう。",
       cue: g.turn === 0 ? [cell(a), cell(b)] : [],
     };
+  const cl = g.board.find((b) => b.k === "LPSCl"),
+    br = g.board.find((b) => b.k === "LPSBr");
+  const pickup = (b: NonNullable<typeof cl>) => ({
+    text: coord(b) + " の " + formulas[b.k] + " をタップして回収！",
+    action: { type: "collect" as const, id: b.id },
+    cue: [b],
+  });
   if (g.mode === "collect")
     return g.collected
-      ? { text: "自動回収に成功！ 次は2つの結晶を予約して混晶へ。", done: true }
-      : swap(a, b, "A4 の Li を選び、直上の A3 に交換。LiCl を作ろう。");
-  if (g.batches)
-    return { text: "混晶バッチ完成！ 2式量の合成と予約結晶の精算に成功。", done: true };
-  if (g.target === "off")
-    return {
-      text: "「Cl / Br 混晶を予約」を押し、完成前に2枠を確保。",
-      action: { type: "reserve", target: "MixedX" },
-    };
-  const cl = g.board.find((v) => v.locked && v.k === "LPSCl"),
-    br = g.board.find((v) => v.locked && v.k === "LPSBr");
-  if (!cl) return swap(a, b, "A4 → A3 と交換。塩化物の最終結晶を予約枠に保持。");
-  if (!br) return swap(c, d, "I4 → I3 と交換。臭化物の最終結晶も保持しよう。");
+      ? { text: "回収に成功！ 次は2つの最終結晶から混晶を作ろう。", done: true }
+      : cl
+        ? pickup(cl)
+        : swap(a, b, "A4 の Li を選び、直上の A3 に交換。LiCl を作ろう。");
+  const batch = g.board.find((b) => b.k === "MixedX");
+  if (batch) return pickup(batch);
+  if (g.batches) return { text: "混晶2式量を1バッチとして回収しました！", done: true };
+  if (!cl) return swap(a, b, "A4 → A3 と交換。完成した塩化物を盤面に残そう。");
+  if (!br) return swap(c, d, "I4 → I3 と交換。臭化物も作って混晶へ。");
   if (g.charges === 1)
     return {
       text: "F1 の ⁶Li を選び「⁶Li を採取」。強制交換のチャージを2に。",
@@ -126,7 +120,7 @@ function guide(g: Game): { text: string; action?: Action; cue?: Rect[]; done?: b
       action: { type: "harvest", id: at(g.board, { x: 5, y: 0 })!.id },
     };
   return {
-    text: "C3 の保持結晶を選び「強制交換」。右隣の E3 を押して2つを接触させよう。",
+    text: "「最終結晶」欄の「C3 を移動」を押し、盤面の E3 を選んで2つの結晶を接触させよう。",
     action: { type: "shift", id: cl.id, to: { x: 4, y: 2 } },
     cue: [cl, { ...cl, x: 4 }],
   };
@@ -138,7 +132,6 @@ function sameAction(a: Action, b: Action) {
       (dist(a.from, b.to) === 0 && dist(a.to, b.from) === 0)
     );
   if (a.type === "shift" && b.type === "shift") return a.id === b.id && dist(a.to, b.to) === 0;
-  if (a.type === "reserve" && b.type === "reserve") return a.target === b.target;
   return "id" in a && "id" in b && a.type === b.type && a.id === b.id;
 }
 function App() {
@@ -236,6 +229,11 @@ function App() {
     );
     return () => timers.forEach(clearTimeout);
   }, [g.events]);
+  useEffect(() => {
+    if (g.pickups.length && !prefs.current.mute)
+      sound("collect", g.pickups.some((b) => b.units === 2) ? 4 : 1);
+  }, [g.pickups]);
+  const finals = g.board.filter((b) => collectible(b.k));
   const lesson = guide(g),
     chosen = sel && !item ? at(g.board, sel) : undefined;
   const active = g.phase === "playing";
@@ -269,7 +267,7 @@ function App() {
       return { p, n, value: n.events.reduce((v, e) => v + e.rule.tier * e.rule.tier, 0) };
     });
     return results.sort((a, b) => b.value - a.value || b.n.blocked.length - a.n.blocked.length)[0];
-  }, [sel, moves, shift, chosen, g.target]);
+  }, [sel, moves, shift, chosen]);
   function dispatch(a: Action) {
     if (!active) return;
     if (!isTimed(g.mode) && (!lesson.action || !sameAction(a, lesson.action))) {
@@ -285,7 +283,7 @@ function App() {
           ...old,
         ].slice(0, 5),
       );
-    if (n.turn !== g.turn && !mute && !n.events.length) sound("move");
+    if (n.turn !== g.turn && !mute && !n.events.length && !n.pickups.length) sound("move");
     write(n);
     clear();
   }
@@ -301,6 +299,11 @@ function App() {
     const destination = moves.find((r) => contains(r, p));
     if (shift && chosen && destination) {
       dispatch({ type: "shift", id: chosen.id, to: destination });
+      return;
+    }
+    const crystal = at(g.board, p);
+    if (!shift && crystal && collectible(crystal.k)) {
+      dispatch({ type: "collect", id: crystal.id });
       return;
     }
     if (!shift && sel && destination) {
@@ -462,7 +465,11 @@ function App() {
                 burst={active ? burst : null}
               />
               {!active && g.phase !== "ready" && (
-                <div className="veil">
+                <div
+                  className={
+                    "veil" + (g.phase === "ended" && g.pickups.length ? " afterPickup" : "")
+                  }
+                >
                   <div>
                     {g.phase === "ended" ? <Trophy /> : <Pause />}
                     <h2>{g.phase === "ended" ? "Time up!" : "Paused"}</h2>
@@ -549,14 +556,11 @@ function App() {
                   </button>
                 ) : (
                   <button
-                    disabled={g.charges < (chosen.locked ? 2 : 1)}
+                    disabled={g.charges < (collectible(chosen.k) ? 2 : 1)}
                     onClick={() => setShift(!shift)}
                   >
-                    {shift ? "交換をキャンセル" : "強制交換 ⚡" + (chosen.locked ? 2 : 1)}
+                    {shift ? "交換をキャンセル" : "強制交換 ⚡" + (collectible(chosen.k) ? 2 : 1)}
                   </button>
-                )}
-                {chosen.locked && (
-                  <button onClick={() => dispatch({ type: "release", id: chosen.id })}>回収</button>
                 )}
               </div>
             )}
@@ -619,15 +623,6 @@ function App() {
                 </button>
               ) : (
                 <>
-                  {g.mode === "rare" && g.target === "off" && (
-                    <button
-                      className="primary wide"
-                      disabled={!active}
-                      onClick={() => dispatch({ type: "reserve", target: "MixedX" })}
-                    >
-                      Cl / Br 混晶を予約
-                    </button>
-                  )}
                   <div className="smallButtons">
                     <button
                       onClick={() =>
@@ -648,47 +643,36 @@ function App() {
                 </>
               )}
             </section>
-            <section className="card locks">
+            <section className="card finals">
               <h2>
                 <span className="chip mint">
-                  <LockKeyhole />
+                  <Gem />
                 </span>
-                結晶の予約
+                最終結晶
               </h2>
-              <label>
-                合成前に選択
-                <select
-                  aria-label="予約する混晶"
-                  value={g.target}
-                  disabled={!active || g.board.some((b) => b.locked)}
-                  onChange={(e) => dispatch({ type: "reserve", target: e.target.value as Target })}
-                >
-                  {Object.entries(targetName).map(([k, v]) => (
-                    <option value={k} key={k}>
-                      {v}
-                    </option>
+              <p>輝く結晶をタップして回収。混晶を狙うなら、対応する2種を隣り合わせよう。</p>
+              {finals.length > 0 && (
+                <ul>
+                  {finals.map((b) => (
+                    <li key={b.id}>
+                      <span>
+                        {formulas[b.k]} <small>{collectionValue(b.k).toLocaleString()} pt</small>
+                      </span>
+                      <button
+                        disabled={!active || g.charges < 2}
+                        onClick={() => {
+                          clear();
+                          select({ x: b.x, y: b.y });
+                          setShift(true);
+                          document.querySelector<HTMLElement>(".board")?.focus();
+                        }}
+                      >
+                        {coord(b)} を移動 ⚡2
+                      </button>
+                    </li>
                   ))}
-                </select>
-              </label>
-              <div className="slots">
-                {(g.target === "off" ? [null, null] : endpoints[g.target]).map((k, i) => {
-                  const b = g.board.find((v) => v.k === k && v.locked);
-                  return (
-                    <div key={i} className={b ? "filled" : ""}>
-                      {b ? <Art kind={b.k} /> : <Gem />}
-                      <span>{k ? formulas[k] : "未予約"}</span>
-                      {b && (
-                        <button
-                          disabled={!active}
-                          onClick={() => dispatch({ type: "release", id: b.id })}
-                        >
-                          回収
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                </ul>
+              )}
             </section>
             <section className="card charge">
               <h2>
@@ -723,7 +707,7 @@ function App() {
             {last && (
               <small>
                 {last.depth} CHAIN ·{" "}
-                {last.retained ? "予約枠に保持" : "+" + last.points.toLocaleString() + " pt"}
+                {last.rule.tier >= 3 ? "合成完了" : "+" + last.points.toLocaleString() + " pt"}
               </small>
             )}
           </div>
@@ -759,11 +743,11 @@ function App() {
               各材料は辺でつながる必要があります。点線は交換候補、ミントの網掛けは推奨手の生成位置。空き不足の材料は赤枠です。重力はなく、連鎖の後に元素を補充します。
             </p>
             <p>
-              最終結晶は自動回収。予約した各種1個だけ保持し、回収・混晶化・時間切れのいずれかで基礎点を精算します。⁶Li
+              最終結晶と混晶はタップで回収して得点。時間切れには盤面に残った分をまとめて回収します。最終結晶欄の「移動」から強制交換でき、対応する2種が隣り合うと混晶になります。⁶Li
               は Li として使うか、採取して強制交換に使えます。
             </p>
             <p>
-              H₂Oボムは二元化合物6個で1滴。ボタンを押し、同じマスを2回選ぶと3×3の範囲で青く光った結晶が溶けて新しい元素になります。範囲をまたぐ結晶・保持結晶・空きマスはそのままです。過飽和溶液は最初から1瓶。空きマスすべてに元素を晶出させます。
+              H₂Oボムは二元化合物6個で1滴。ボタンを押し、同じマスを2回選ぶと3×3の範囲で青く光った結晶が溶けて新しい元素になります。範囲をまたぐ結晶・最終結晶・空きマスはそのままです。過飽和溶液は最初から1瓶。空きマスすべてに元素を晶出させます。
             </p>
             <div className="smallButtons">
               {(["collect", "rare"] as const).map((m, i) => (
@@ -788,7 +772,11 @@ function App() {
                   .filter((r) => r.tier === t)
                   .map((r) => (
                     <p key={r.product}>
-                      {equation(r)} <b>{r.points.toLocaleString()} pt</b>
+                      {equation(r)}{" "}
+                      <b>
+                        {r.tier >= 3 ? "回収 " : ""}
+                        {(r.tier >= 3 ? collectionValue(r.product) : r.points).toLocaleString()} pt
+                      </b>
                     </p>
                   ))}
               </section>

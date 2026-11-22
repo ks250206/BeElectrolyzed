@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { CanvasRenderer, Container, Sprite, Texture } from "pixi.js";
-import { LockKeyhole } from "lucide-react";
-import { formulas, type Product } from "../game/chemistry";
+import { Sparkles } from "lucide-react";
+import { collectible, collectionValue, formulas, type Product } from "../game/chemistry";
 import { at, N, dist, type Point, type Rect, type Block } from "../game/spatial";
 import type { Game, Reaction, WaterArea } from "../game/game";
 import { cavern, tile, gem, crown, heroArt } from "./art";
@@ -116,6 +116,61 @@ function GrownCrystal({ b }: { b: Block }) {
   }, [b]);
   return <canvas className="grown" ref={ref} />;
 }
+function CollectionEffects({
+  pickups,
+  turn,
+  low,
+}: {
+  pickups: Block[];
+  turn: number;
+  low: boolean;
+}) {
+  const [crystals, setCrystals] = useState<Block[]>([]);
+  useEffect(() => {
+    if (pickups.length) setCrystals((previous) => [...previous, ...pickups]);
+    else if (!turn) setCrystals([]);
+  }, [pickups, turn]);
+  return (
+    <>
+      {crystals.map((b) => (
+        <div
+          key={b.id}
+          aria-hidden="true"
+          className={"pickupFx" + (low ? " quiet" : "") + (b.units === 2 ? " grand" : "")}
+          style={pos(b)}
+          onAnimationEnd={(e) => {
+            if (e.target === e.currentTarget)
+              setCrystals((previous) => previous.filter((c) => c !== b));
+          }}
+        >
+          {!low && (
+            <>
+              <i className="halo" />
+              <i className="echo" />
+              {Array.from({ length: b.units === 2 ? 36 : 24 }, (_, i) => (
+                <i
+                  className="pickupStar"
+                  key={i}
+                  style={
+                    {
+                      "--a": i * 137.508 + "deg",
+                      "--length": 38 + (i % 7) * 10 + (b.units === 2 ? 15 : 0) + "px",
+                      "--wait": (i % 4) * 0.045 + "s",
+                      color: ["#fff6b6", "#a6ffea", "#ffd2fc", "#e4c5ff"][i % 4],
+                    } as CSSProperties
+                  }
+                >
+                  {i % 3 === 0 ? "✧" : "✦"}
+                </i>
+              ))}
+            </>
+          )}
+          <b>+{collectionValue(b.k).toLocaleString()}</b>
+        </div>
+      ))}
+    </>
+  );
+}
 export function Board({
   g,
   waterPreview,
@@ -194,7 +249,9 @@ export function Board({
           "結晶盤。矢印で移動、Enterで選択。" +
           coord(cursor) +
           " " +
-          (atCursor ? formulas[atCursor.k] : "空き")
+          (atCursor
+            ? formulas[atCursor.k] + (collectible(atCursor.k) ? "、タップまたはEnterで回収" : "")
+            : "空き")
         }
         onKeyDown={keys}
         onPointerDown={(e) => {
@@ -223,12 +280,19 @@ export function Board({
         <div className="gridlines" />
         <PixiField board={g.board} />
         {g.board
-          .filter((b) => b.locked)
+          .filter((b) => collectible(b.k))
           .map((b) => (
-            <i className="mark locked" key={b.id} style={pos(b)}>
-              <LockKeyhole size={12} />
+            <i
+              className={
+                "mark collectible" + (low ? " quiet" : "") + (b.units === 2 ? " grand" : "")
+              }
+              key={b.id}
+              style={{ ...pos(b), "--offset": -(b.id % 41) / 10 + "s" } as CSSProperties}
+            >
+              <Sparkles />
             </i>
           ))}
+        <CollectionEffects pickups={g.pickups} turn={g.turn} low={low} />
         {g.itemEffect?.type === "water" && !low && (
           <div key={"wash" + g.turn} aria-hidden="true" className="waterEffect">
             {g.itemEffect.area.crystals.map((b) => (
@@ -286,7 +350,7 @@ export function Board({
                 </span>
               ))}
             {burst.rule.tier === 4 && <label>✦ RARE BATCH ×2 ✦</label>}
-            <strong>{burst.retained ? "LOCK" : "+" + burst.points.toLocaleString()}</strong>
+            <strong>{burst.rule.tier >= 3 ? "完成！" : "+" + burst.points.toLocaleString()}</strong>
           </div>
         )}
         {burst?.rule.tier === 4 && (
@@ -294,9 +358,7 @@ export function Board({
             <Art kind="crown" />
             <small>✦ GRAND SYNTHESIS ✦</small>
             <b>混晶バッチ完成!</b>
-            <span>
-              2 {formulas[burst.rule.product]}　·　+{burst.points.toLocaleString()} pt
-            </span>
+            <span>2 {formulas[burst.rule.product]}　·　タップで回収</span>
           </div>
         )}
       </div>

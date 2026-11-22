@@ -11,7 +11,6 @@ export interface Rect extends Point {
 export interface Block extends Rect {
   id: number;
   k: Product;
-  locked?: boolean;
   units?: number;
 }
 export const overlaps = (a: Rect, b: Rect) =>
@@ -67,8 +66,7 @@ export function match(
   accept: (group: Block[]) => boolean = () => true,
 ) {
   const needed = (b: Block) => rule.needs[canonical(b.k)] ?? 0;
-  const eligible = (b: Block) =>
-    needed(b) > 0 && !reserved.has(b.id) && (rule.tier !== 4 || b.locked);
+  const eligible = (b: Block) => needed(b) > 0 && !reserved.has(b.id);
   const size = Object.values(rule.needs).reduce((a, b) => a + b, 0);
   const visited = new Set<string>(),
     edges = new Map<number, Block[]>();

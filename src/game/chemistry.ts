@@ -24,7 +24,6 @@ export const formulas = {
   MixedM: "Li₁₀Ge₀.₅Sn₀.₅P₂S₁₂",
 } as const;
 export type Product = keyof typeof formulas;
-export type Target = "off" | "MixedX" | "MixedM";
 export type Tier = 1 | 2 | 3 | 4;
 export type Recipe = {
   product: Product;
@@ -60,10 +59,21 @@ export const recipes = [
   recipe("Li2S", { Li: 2, S: 1 }, 1, 20),
 ];
 export const byProduct = new Map(recipes.map((r) => [r.product, r]));
-export const endpoints: Record<Exclude<Target, "off">, Product[]> = {
-  MixedX: ["LPSCl", "LPSBr"],
-  MixedM: ["LGPS", "LSPS"],
-};
+export function collectible(k: Product) {
+  return (byProduct.get(k)?.tier ?? 0) >= 3;
+}
+export function collectionValue(k: Product) {
+  const r = byProduct.get(k);
+  if (!r || r.tier < 3) return 0;
+  if (r.tier === 3) return r.points;
+  return (
+    r.points +
+    Object.entries(r.needs).reduce(
+      (sum, [input, n]) => sum + n * byProduct.get(input as Product)!.points,
+      0,
+    )
+  );
+}
 export const canonical = (k: Product) => (k === "Li6" ? "Li" : k);
 export const equation = (r: Recipe) =>
   Object.entries(r.needs)

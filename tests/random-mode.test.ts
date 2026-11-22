@@ -31,9 +31,12 @@ it("makes a final from scratch and counts down only while playing", () => {
   ]) {
     g = act(g, { type: "swap", from: { x, y }, to: { x: x + dx, y } }, 1000 * (g.turn + 1));
   }
-  expect(g.collected).toBe(1);
-  expect(g.score).toBe(1200);
+  expect(g.collected).toBe(0);
+  expect(g.score).toBe(200);
   g = pause(g, 5000);
   expect(clock(g, 15000).remaining).toBe(175000);
-  expect(clock(start(g, 15000), 190000).phase).toBe("ended");
+  const end = clock(start(g, 15000), 190000);
+  expect(end.phase).toBe("ended");
+  expect(end.score).toBe(1200);
+  expect(end.pickups.map((b) => b.k)).toEqual(["LPSBr"]);
 });
