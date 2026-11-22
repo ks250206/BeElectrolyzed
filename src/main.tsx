@@ -15,6 +15,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Shuffle,
   Sparkles,
   Trophy,
   VolumeX,
@@ -27,6 +28,7 @@ import {
   clock,
   create,
   destinations,
+  isTimed,
   pause,
   start,
   type Action,
@@ -78,6 +80,8 @@ function guide(g: Game): { text: string; action?: Action; cue?: Rect[]; done?: b
     action: { type: "swap" as const, from, to },
     cue: [cell(from), cell(to)],
   });
+  if (g.mode === "random")
+    return { text: "元素から合成をスタート。隣のマスと交換して、Li₂S や P₂S₅ を作ろう。" };
   if (g.mode === "attack")
     return {
       text:
@@ -140,7 +144,12 @@ function App() {
     [low, setLow] = useState(
       () => read("low", matchMedia("(prefers-reduced-motion: reduce)").matches ? "1" : "0") === "1",
     ),
-    [best, setBest] = useState(() => Number(read("best", "0")) || 0);
+    [records, setRecords] = useState(() => ({
+      attack: Number(read("best", "0")) || 0,
+      random: Number(read("best-random", "0")) || 0,
+    }));
+  const recordMode = g.mode === "random" ? "random" : "attack";
+  const best = records[recordMode];
   const dialog = useRef<HTMLDialogElement>(null),
     restartDialog = useRef<HTMLDialogElement>(null),
     resumeHelp = useRef(false);
@@ -179,11 +188,11 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (g.mode === "attack" && g.score > best) {
-      save("best", String(g.score));
-      setBest(g.score);
+    if (isTimed(g.mode) && g.score > best) {
+      save(recordMode === "random" ? "best-random" : "best", String(g.score));
+      setRecords((previous) => ({ ...previous, [recordMode]: g.score }));
     }
-  }, [g.score, g.mode, best]);
+  }, [g.score, g.mode, best, recordMode]);
   useEffect(() => {
     if (!g.events.length) {
       setBurst(null);
@@ -240,7 +249,7 @@ function App() {
   }, [sel, moves, shift, chosen, g.target]);
   function dispatch(a: Action) {
     if (!active) return;
-    if (g.mode !== "attack" && (!lesson.action || !sameAction(a, lesson.action))) {
+    if (!isTimed(g.mode) && (!lesson.action || !sameAction(a, lesson.action))) {
       setNotice(lesson.text);
       return;
     }
@@ -290,12 +299,11 @@ function App() {
   }
   const remaining = Math.ceil(g.remaining / 1000),
     last = history[0],
-    time =
-      g.mode === "attack"
-        ? String(Math.floor(remaining / 60)).padStart(2, "0") +
-          ":" +
-          String(remaining % 60).padStart(2, "0")
-        : "∞";
+    time = isTimed(g.mode)
+      ? String(Math.floor(remaining / 60)).padStart(2, "0") +
+        ":" +
+        String(remaining % 60).padStart(2, "0")
+      : "∞";
   const feedback =
     notice ||
     (sel
@@ -389,7 +397,8 @@ function App() {
                 <span className="liveDot" /> REACTION BOARD
               </div>
               <div className="modeTag">
-                {g.mode === "attack" ? "TIME ATTACK" : "TRAINING"} <span> / 12 × 12</span>
+                {g.mode === "random" ? "RANDOM" : g.mode === "attack" ? "TIME ATTACK" : "TRAINING"}{" "}
+                <span> / 12 × 12</span>
               </div>
             </div>
             <div className="boardWrap">
@@ -425,7 +434,7 @@ function App() {
                       onClick={() =>
                         g.phase === "paused"
                           ? write(start(live.current, performance.now()))
-                          : begin("attack")
+                          : begin(g.mode)
                       }
                     >
                       {g.phase === "paused" ? "プレイを再開" : "もう一度遊ぶ"}
@@ -476,7 +485,7 @@ function App() {
                   <Clock3 /> TIME
                 </small>
                 <strong>{time}</strong>
-                <span>{g.mode === "attack" ? "残り時間" : "時間制限なし"}</span>
+                <span>{isTimed(g.mode) ? "残り時間" : "時間制限なし"}</span>
               </div>
             </section>
             <section className="card session">
@@ -486,9 +495,11 @@ function App() {
                 </span>
                 {g.mode === "attack"
                   ? "タイムアタック"
-                  : g.mode === "rare"
-                    ? "混晶を練習"
-                    : "回収を練習"}
+                  : g.mode === "random"
+                    ? "完全ランダム"
+                    : g.mode === "rare"
+                      ? "混晶を練習"
+                      : "回収を練習"}
               </h2>
               <p>
                 {g.phase === "ready"
@@ -497,12 +508,17 @@ function App() {
               </p>
               {g.phase === "ready" ? (
                 <>
-                  <button className="primary wide" onClick={() => begin("attack")}>
-                    <Play /> プレイ開始
-                  </button>
+                  <div className="smallButtons">
+                    <button className="primary" onClick={() => begin("attack")}>
+                      <Play /> プレイ開始
+                    </button>
+                    <button onClick={() => begin("random")}>
+                      <Shuffle /> 完全ランダム
+                    </button>
+                  </div>
                   <div className="smallButtons">{lessonButtons}</div>
                 </>
-              ) : g.mode !== "attack" && lesson.done ? (
+              ) : !isTimed(g.mode) && lesson.done ? (
                 <button
                   className="primary wide"
                   onClick={() => begin(g.mode === "collect" ? "rare" : "attack")}
@@ -525,7 +541,7 @@ function App() {
                     <button
                       onClick={() =>
                         g.phase === "ended"
-                          ? begin("attack")
+                          ? begin(g.mode)
                           : active
                             ? write(pause(g, performance.now()))
                             : write(start(g, performance.now()))

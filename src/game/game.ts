@@ -24,7 +24,8 @@ import {
   type Block,
   type Point,
 } from "./spatial";
-export type Mode = "attack" | "collect" | "rare";
+export type Mode = "attack" | "random" | "collect" | "rare";
+export const isTimed = (mode: Mode) => mode === "attack" || mode === "random";
 export type Phase = "ready" | "playing" | "paused" | "ended";
 export interface Reaction {
   rule: Recipe;
@@ -100,7 +101,7 @@ function supply(g: Game, exclude: Point[] = [], isotopeAllowance = 0) {
 export function create(seed: number, mode: Mode = "attack"): Game {
   const g: Game = {
     board: [],
-    seed: mode === "attack" ? seed : 24,
+    seed: isTimed(mode) ? seed : 24,
     nextId: 1,
     phase: "ready",
     mode,
@@ -119,6 +120,10 @@ export function create(seed: number, mode: Mode = "attack"): Game {
     blocked: [],
     lastChain: 0,
   };
+  if (mode === "random") {
+    supply(g, [], 2);
+    return g;
+  }
   // Two starter workbenches. All subsequent production uses the same spatial recipes.
   for (const x of [2, 6]) {
     put(g, "Li3PS4", x, 2, 2, 2);
@@ -154,7 +159,7 @@ export function start(g: Game, now: number): Game {
   return g.phase === "ready" || g.phase === "paused" ? { ...g, phase: "playing", since: now } : g;
 }
 export function clock(g: Game, now: number): Game {
-  if (g.phase !== "playing" || g.mode !== "attack") return g;
+  if (g.phase !== "playing" || !isTimed(g.mode)) return g;
   const remaining = Math.max(0, g.remaining - Math.max(0, now - g.since));
   if (remaining) return { ...g, remaining, since: Math.max(now, g.since) };
   const locks = g.board.filter((b) => b.locked);
@@ -335,7 +340,7 @@ export function act(previous: Game, a: Action, now: number, refill = true): Game
   if (refill)
     supply(
       g,
-      g.mode === "attack"
+      isTimed(g.mode)
         ? []
         : [
             { x: 8, y: 2 },
