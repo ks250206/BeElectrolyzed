@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronRight,
   Clock3,
+  Droplet,
   FlaskConical,
   Gem,
   GraduationCap,
@@ -29,6 +30,8 @@ import {
   create,
   destinations,
   isTimed,
+  waterArea,
+  WATER_THRESHOLD,
   pause,
   start,
   type Action,
@@ -45,7 +48,18 @@ import {
   shape,
   type Target,
 } from "./game/chemistry";
-import { at, cell, contains, dirs, dist, inside, type Point, type Rect } from "./game/spatial";
+import {
+  at,
+  cell,
+  contains,
+  dirs,
+  dist,
+  inside,
+  vacantCells,
+  type Point,
+  type Rect,
+} from "./game/spatial";
+import { CrystalResult } from "./ui/CrystalResult";
 import { Art, Board, coord } from "./ui/Board";
 import { sound, unlock } from "./ui/audio";
 const title = ["", "二元化合物", "中間化合物", "最終結晶", "混晶バッチ"];
@@ -135,6 +149,7 @@ function App() {
     setG(n);
   };
   const [sel, select] = useState<Point | null>(null),
+    [item, setItem] = useState<"water" | "solution" | null>(null),
     [shift, setShift] = useState(false),
     [help, setHelp] = useState(false),
     [notice, setNotice] = useState(""),
@@ -157,6 +172,7 @@ function App() {
   prefs.current = { mute, low };
   const clear = () => {
     select(null);
+    setItem(null);
     setShift(false);
     setNotice("");
   };
@@ -221,10 +237,17 @@ function App() {
     return () => timers.forEach(clearTimeout);
   }, [g.events]);
   const lesson = guide(g),
-    chosen = sel ? at(g.board, sel) : undefined;
+    chosen = sel && !item ? at(g.board, sel) : undefined;
   const active = g.phase === "playing";
+  const waterPreview = active && item === "water" && sel ? waterArea(g.board, sel) : null;
+  const emptyCells = useMemo(() => vacantCells(g.board), [g.board]);
+  const vacancies = emptyCells.length;
+  function toggleItem(next: "water" | "solution") {
+    clear();
+    setItem(item === next ? null : next);
+  }
   const moves = useMemo(() => {
-    if (!sel || !active) return [];
+    if (!sel || !active || item) return [];
     if (chosen && chosen.w * chosen.h > 1) return shift ? destinations(g, chosen) : [];
     return dirs
       .map(([dx, dy]) => cell({ x: sel.x + dx, y: sel.y + dy }))
@@ -234,7 +257,7 @@ function App() {
           (at(g.board, p)?.w ?? 1) * (at(g.board, p)?.h ?? 1) === 1 &&
           (chosen || at(g.board, p)),
       );
-  }, [sel, active, shift, g.board, g.charges, chosen]);
+  }, [sel, active, shift, g.board, g.charges, chosen, item]);
   const forecast = useMemo(() => {
     if (!sel || !moves.length) return null;
     const results = moves.map((p) => {
@@ -268,6 +291,13 @@ function App() {
   }
   function pick(p: Point) {
     if (!active) return;
+    if (item === "water") {
+      if (sel && dist(sel, p) === 0) {
+        if (waterPreview?.crystals.length) dispatch({ type: "dissolve", center: p });
+      } else select(p);
+      return;
+    }
+    if (item === "solution") return;
     const destination = moves.find((r) => contains(r, p));
     if (shift && chosen && destination) {
       dispatch({ type: "shift", id: chosen.id, to: destination });
@@ -305,6 +335,18 @@ function App() {
         String(remaining % 60).padStart(2, "0")
       : "∞";
   const feedback =
+    (active && item === "water"
+      ? waterPreview && sel
+        ? coord(sel) +
+          " · " +
+          waterPreview.crystals.length +
+          "個が対象。" +
+          (waterPreview.crystals.length
+            ? "同じマスをもう一度押すか「溶かす」で確定"
+            : "別の場所を選んでください")
+        : "盤面を押して溶かす3×3の範囲を選択"
+      : "") ||
+    (active && item === "solution" ? "空き" + vacancies + "マスすべてに元素を晶出させます" : "") ||
     notice ||
     (sel
       ? chosen && chosen.w * chosen.h > 1
@@ -404,12 +446,17 @@ function App() {
             <div className="boardWrap">
               <Board
                 g={g}
-                selected={sel ? (chosen ?? cell(sel)) : null}
+                waterPreview={waterPreview}
+                solutionPreview={active && item === "solution" ? emptyCells : []}
+                aimingWater={active && item === "water"}
+                selected={sel && !item ? (chosen ?? cell(sel)) : null}
                 targets={moves}
                 ghost={forecast?.n.events[0]?.outputs ?? []}
-                cue={active ? (lesson.cue ?? []) : []}
+                cue={active && !item ? (lesson.cue ?? []) : []}
                 pick={pick}
-                drag={(from, to) => dispatch({ type: "swap", from, to })}
+                drag={(from, to) => {
+                  if (!item) dispatch({ type: "swap", from, to });
+                }}
                 cancel={clear}
                 low={low}
                 burst={active ? burst : null}
@@ -429,6 +476,7 @@ function App() {
                           "組"
                         : "時計を止めています"}
                     </p>
+                    {g.phase === "ended" && <CrystalResult made={g.made} />}
                     <button
                       className="primary"
                       onClick={() =>
@@ -447,6 +495,48 @@ function App() {
               <ArrowLeftRight />
               {feedback}
             </div>
+            {isTimed(g.mode) && g.phase !== "ended" && (
+              <div className="itemTray">
+                <button
+                  className="waterButton"
+                  title="二元化合物6個で1滴。3×3の結晶を溶かす"
+                  aria-pressed={item === "water"}
+                  disabled={!active || g.water < WATER_THRESHOLD}
+                  onClick={() => toggleItem("water")}
+                >
+                  <Droplet /> {item === "water" ? "キャンセル" : "H₂Oボム"}{" "}
+                  <b>
+                    {g.water}/{WATER_THRESHOLD}
+                  </b>
+                </button>
+                <button
+                  title="空きマスすべてに元素を晶出。1プレイに1瓶"
+                  aria-pressed={item === "solution"}
+                  disabled={!active || !g.solution || !vacancies}
+                  onClick={() => toggleItem("solution")}
+                >
+                  <FlaskConical /> {item === "solution" ? "キャンセル" : "過飽和溶液"}{" "}
+                  <b>×{g.solution}</b>
+                </button>
+                {waterPreview && sel && (
+                  <button
+                    className="confirmSolution"
+                    disabled={!waterPreview.crystals.length}
+                    onClick={() => dispatch({ type: "dissolve", center: sel })}
+                  >
+                    溶かす
+                  </button>
+                )}
+                {active && item === "solution" && (
+                  <button
+                    className="confirmSolution"
+                    onClick={() => dispatch({ type: "crystallize" })}
+                  >
+                    {vacancies}マスを埋める
+                  </button>
+                )}
+              </div>
+            )}
             {active && chosen && (chosen.w * chosen.h > 1 || chosen.k === "Li6") && (
               <div className="tools">
                 <strong>{formulas[chosen.k]}</strong>
@@ -506,6 +596,7 @@ function App() {
                   ? "180秒で結晶を合成。まずは Li と Cl をつなげよう。"
                   : lesson.text}
               </p>
+              {lesson.done && <CrystalResult made={g.made} />}
               {g.phase === "ready" ? (
                 <>
                   <div className="smallButtons">
@@ -670,6 +761,9 @@ function App() {
             <p>
               最終結晶は自動回収。予約した各種1個だけ保持し、回収・混晶化・時間切れのいずれかで基礎点を精算します。⁶Li
               は Li として使うか、採取して強制交換に使えます。
+            </p>
+            <p>
+              H₂Oボムは二元化合物6個で1滴。ボタンを押し、同じマスを2回選ぶと3×3の範囲で青く光った結晶が溶けて新しい元素になります。範囲をまたぐ結晶・保持結晶・空きマスはそのままです。過飽和溶液は最初から1瓶。空きマスすべてに元素を晶出させます。
             </p>
             <div className="smallButtons">
               {(["collect", "rare"] as const).map((m, i) => (

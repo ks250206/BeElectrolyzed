@@ -3,7 +3,7 @@ import { CanvasRenderer, Container, Sprite, Texture } from "pixi.js";
 import { LockKeyhole } from "lucide-react";
 import { formulas, type Product } from "../game/chemistry";
 import { at, N, dist, type Point, type Rect, type Block } from "../game/spatial";
-import type { Game, Reaction } from "../game/game";
+import type { Game, Reaction, WaterArea } from "../game/game";
 import { cavern, tile, gem, crown, heroArt } from "./art";
 export function Art({ kind }: { kind: "hero" | "crown" | Product }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -93,6 +93,9 @@ export const coord = (p: Point) => String.fromCharCode(65 + p.x) + (p.y + 1);
 interface Props {
   g: Game;
   selected: Rect | null;
+  waterPreview: WaterArea | null;
+  aimingWater: boolean;
+  solutionPreview: Point[];
   targets: Rect[];
   ghost: Rect[];
   cue: Rect[];
@@ -113,7 +116,21 @@ function GrownCrystal({ b }: { b: Block }) {
   }, [b]);
   return <canvas className="grown" ref={ref} />;
 }
-export function Board({ g, selected, targets, ghost, cue, pick, drag, cancel, low, burst }: Props) {
+export function Board({
+  g,
+  waterPreview,
+  aimingWater,
+  solutionPreview,
+  selected,
+  targets,
+  ghost,
+  cue,
+  pick,
+  drag,
+  cancel,
+  low,
+  burst,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null),
     bg = useRef<HTMLCanvasElement>(null),
     down = useRef<{ p: Point; x: number; y: number; id: number } | null>(null),
@@ -121,6 +138,9 @@ export function Board({ g, selected, targets, ghost, cue, pick, drag, cancel, lo
   useEffect(() => {
     cavern(bg.current!);
   }, []);
+  useEffect(() => {
+    if (aimingWater) ref.current?.focus({ preventScroll: true });
+  }, [aimingWater]);
   const point = (x: number, y: number) => {
     const r = ref.current!.getBoundingClientRect();
     return {
@@ -143,7 +163,7 @@ export function Board({ g, selected, targets, ghost, cue, pick, drag, cancel, lo
       });
     } else if (e.key === " " || e.key === "Enter") {
       e.preventDefault();
-      pick(cursor);
+      if (!e.repeat) pick(cursor);
     } else if (e.key === "Escape") {
       e.preventDefault();
       cancel();
@@ -209,6 +229,28 @@ export function Board({ g, selected, targets, ghost, cue, pick, drag, cancel, lo
               <LockKeyhole size={12} />
             </i>
           ))}
+        {g.itemEffect?.type === "water" && !low && (
+          <div key={"wash" + g.turn} aria-hidden="true" className="waterEffect">
+            {g.itemEffect.area.crystals.map((b) => (
+              <div className="oldCrystal" key={b.id} style={pos(b)}>
+                <GrownCrystal b={b} />
+              </div>
+            ))}
+            <div className="liquidWave" style={pos(g.itemEffect.area.region)} />
+          </div>
+        )}
+        {g.itemEffect?.type === "solution" && !low && (
+          <div key={"growth" + g.turn} aria-hidden="true">
+            {highlight(g.itemEffect.cells.map(unit), "solutionGrowth")}
+          </div>
+        )}
+        {waterPreview && (
+          <>
+            {highlight([waterPreview.region], "waterRange")}
+            {highlight(waterPreview.crystals, "waterTarget")}
+          </>
+        )}
+        {highlight(solutionPreview.map(unit), "solutionTarget")}
         {highlight(cue, "cue")}
         {highlight(ghost, "ghost")}
         {highlight(targets, "destination")}

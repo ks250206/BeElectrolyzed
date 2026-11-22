@@ -76,6 +76,9 @@ it("plays the two-lock route, harvest and rectangle exchange for a two-unit batc
   expect(g.events[0].points).toBe(10000);
   expect(g.score - before).toBe(g.events.reduce((s, e) => s + e.points, 0));
   expect(g.batches).toBe(1);
+  expect(g.made.MixedX).toBe(1);
+  expect(g.made.LPSCl).toBe(1);
+  expect(g.made.LPSBr).toBe(1);
 });
 it("preserves identity in a legal exchange and rejects cuts, overlap, distant or offboard moves for free", () => {
   const b = { ...block("LPSCl", 2, 2, 2, 3), locked: true };
@@ -114,6 +117,7 @@ it("settles locks once at release or deadline, never advances while paused or af
   );
   const b = g.board.find((v) => v.locked)!;
   const released = act(g, { type: "release", id: b.id }, 2000);
+  expect(released.made.LPSCl).toBe(g.made.LPSCl);
   expect(released.score).toBe(g.score + 1000 + released.events.reduce((s, e) => s + e.points, 0));
   expect(act(released, { type: "release", id: b.id }, 2100).score).toBe(released.score);
   g = pause(g, 2500);

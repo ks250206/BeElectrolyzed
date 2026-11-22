@@ -23,6 +23,8 @@ import {
   plan,
   type Block,
   type Point,
+  type Rect,
+  vacantCells,
 } from "./spatial";
 export type Mode = "attack" | "random" | "collect" | "rare";
 export const isTimed = (mode: Mode) => mode === "attack" || mode === "random";
@@ -45,6 +47,10 @@ export interface Game {
   since: number;
   target: Target;
   charges: number;
+  water: number;
+  solution: number;
+  made: Partial<Record<Product, number>>;
+  itemEffect: { type: "water"; area: WaterArea } | { type: "solution"; cells: Point[] } | null;
   score: number;
   collected: number;
   batches: number;
@@ -57,10 +63,30 @@ export interface Game {
   lastChain: number;
 }
 export type Action =
+  | { type: "crystallize" }
+  | { type: "dissolve"; center: Point }
   | { type: "swap"; from: Point; to: Point }
   | { type: "shift"; id: number; to: Point }
   | { type: "harvest" | "release"; id: number }
   | { type: "reserve"; target: Target };
+export const WATER_THRESHOLD = 6;
+export interface WaterArea {
+  region: Rect;
+  crystals: Block[];
+}
+export function waterArea(board: Block[], center: Point): WaterArea {
+  const region = {
+    x: Math.max(0, Math.min(N - 3, center.x - 1)),
+    y: Math.max(0, Math.min(N - 3, center.y - 1)),
+    w: 3,
+    h: 3,
+  };
+  const crystals = board.filter(
+    (b) =>
+      !b.locked && contains(region, b) && contains(region, { x: b.x + b.w - 1, y: b.y + b.h - 1 }),
+  );
+  return { region, crystals };
+}
 const INITIAL_TIME = 180000;
 function random(g: Game) {
   g.seed = (Math.imul(g.seed, 1664525) + 1013904223) >>> 0;
@@ -69,17 +95,36 @@ function random(g: Game) {
 function put(g: Game, k: Product, x: number, y: number, w = 1, h = 1) {
   g.board.push({ k, x, y, w, h, id: g.nextId++ });
 }
+const metalSupply: Product[] = [
+  "Ge",
+  "Sn",
+  "P",
+  "P",
+  "Li",
+  "Li",
+  "Li",
+  "Li",
+  "Li",
+  "Li",
+  "S",
+  "S",
+  "S",
+  "S",
+  "S",
+  "S",
+  "S",
+  "P",
+];
+const defaultSupply: Product[] = ["Br", "Cl", ...metalSupply];
+// Keep the established draw order so shared seeds replay the same exchanges.
+function drawElement(g: Game): Product {
+  const bag = g.target === "MixedM" ? metalSupply : defaultSupply;
+  return bag[Math.floor(random(g) * bag.length)];
+}
 function supply(g: Game, exclude: Point[] = [], isotopeAllowance = 0) {
-  const grid = indexBoard(g.board),
-    empty: Point[] = [];
-  for (let i = 0; i < N * N; i++) {
-    const p = { x: i % N, y: Math.floor(i / N) };
-    if (!grid[i] && !exclude.some((e) => dist(p, e) === 0)) empty.push(p);
-  }
-  const occupied = grid.filter(Boolean).length;
-  const bag: Product[] =
-    g.target === "MixedM" ? ["Ge", "Sn", "P", "P"] : ["Br", "Cl", "Ge", "Sn", "P", "P"];
-  bag.push("Li", "Li", "Li", "Li", "Li", "Li", "S", "S", "S", "S", "S", "S", "S", "P");
+  const vacancies = vacantCells(g.board);
+  const occupied = N * N - vacancies.length;
+  const empty = vacancies.filter((p) => !exclude.some((e) => dist(p, e) === 0));
   let isotopes = g.board.filter((b) => b.k === "Li6").length;
   const targetOccupancy =
     isotopeAllowance > 0 && isotopes < 2 ? Math.min(132, Math.max(130, occupied + 1)) : 130;
@@ -88,8 +133,7 @@ function supply(g: Game, exclude: Point[] = [], isotopeAllowance = 0) {
       p = empty[j];
     empty[j] = empty[empty.length - 1];
     empty.pop();
-    const k =
-      isotopes < 2 && isotopeAllowance > 0 ? "Li6" : bag[Math.floor(random(g) * bag.length)];
+    const k = isotopes < 2 && isotopeAllowance > 0 ? "Li6" : drawElement(g);
     put(g, k, p.x, p.y);
     if (k === "Li6") {
       isotopes++;
@@ -109,6 +153,10 @@ export function create(seed: number, mode: Mode = "attack"): Game {
     since: 0,
     target: "off",
     charges: 1,
+    water: 0,
+    solution: isTimed(mode) ? 1 : 0,
+    made: {},
+    itemEffect: null,
     score: 0,
     collected: 0,
     batches: 0,
@@ -237,6 +285,8 @@ function resolve(g: Game, changed: Block[], anchor: Point) {
           : rule.points +
             (rule.tier === 4 ? inputs.reduce((s, b) => s + byProduct.get(b.k)!.points, 0) : 0);
         g.score += points;
+        g.made[rule.product] = (g.made[rule.product] ?? 0) + outputs.length;
+        if (rule.tier === 1) g.water = Math.min(WATER_THRESHOLD, g.water + outputs.length);
         g.nextId += outputs.length;
         g.board = g.board.filter((b) => !inputs.includes(b));
         if (rule.tier < 3 || retained) {
@@ -260,9 +310,11 @@ function resolve(g: Game, changed: Block[], anchor: Point) {
 export function act(previous: Game, a: Action, now: number, refill = true): Game {
   const t = clock(previous, now);
   if (t.phase !== "playing") return t;
-  const g = {
+  const g: Game = {
     ...t,
     board: [...t.board],
+    made: { ...t.made },
+    itemEffect: null,
     events: [] as Reaction[],
     blocked: [] as Block[],
     message: "",
@@ -277,6 +329,38 @@ export function act(previous: Game, a: Action, now: number, refill = true): Game
       target: a.target,
       message: a.target === "off" ? "自動回収に設定" : "合成前の予約を設定しました",
     };
+  }
+  if (a.type === "crystallize") {
+    if (!g.solution) return invalid("過飽和溶液は使用済みです");
+    const cells = vacantCells(g.board);
+    if (!cells.length) return invalid("盤面は満杯です");
+    for (const { x, y } of cells) put(g, drawElement(g), x, y);
+    g.itemEffect = { type: "solution", cells };
+    g.solution--;
+    g.turn++;
+    g.message = cells.length + "マスに元素結晶が晶出しました";
+    return g;
+  }
+  if (a.type === "dissolve") {
+    if (
+      g.water < WATER_THRESHOLD ||
+      !Number.isInteger(a.center.x) ||
+      !Number.isInteger(a.center.y) ||
+      !inside(cell(a.center))
+    )
+      return invalid("水滴をためて盤面を選択");
+    const area = waterArea(g.board, a.center);
+    if (!area.crystals.length) return invalid("この範囲に溶かせる結晶がありません");
+    const removed = new Set(area.crystals);
+    g.board = g.board.filter((b) => !removed.has(b));
+    for (const b of removed)
+      for (let y = b.y; y < b.y + b.h; y++)
+        for (let x = b.x; x < b.x + b.w; x++) put(g, drawElement(g), x, y);
+    g.water = 0;
+    g.itemEffect = { type: "water", area };
+    g.turn++;
+    g.message = area.crystals.length + "個の結晶を溶かし、元素が晶出しました";
+    return g;
   }
   if (a.type === "swap") {
     const one = at(g.board, a.from),

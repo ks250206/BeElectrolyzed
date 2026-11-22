@@ -34,6 +34,12 @@ export function indexBoard(board: Block[]) {
     for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) grid[y * N + x] = b;
   return grid;
 }
+export function vacantCells(board: Block[]): Point[] {
+  const grid = indexBoard(board),
+    empty: Point[] = [];
+  for (let i = 0; i < N * N; i++) if (!grid[i]) empty.push({ x: i % N, y: Math.floor(i / N) });
+  return empty;
+}
 export function contacts(b: Rect, grid: ReturnType<typeof indexBoard>) {
   const found = new Set<Block>();
   function add(x: number, y: number) {
